@@ -483,9 +483,10 @@ end
         should_retry = Proc.new {
           !map[dev] and MU::Master.nvme?
         }
+        value = nil
         MU.retrier(loop_if: should_retry, wait: 5, max: 6) {
           map = attachedNVMeDisks
-          if map[dev]
+          value = if map[dev]
             map[dev]
           elsif map[dev.gsub(/.*?\//, '')]
             map[dev.gsub(/.*?\//, '')]
@@ -493,6 +494,7 @@ end
             dev # be nice to actually handle this too
           end
         }
+        value
       end
 
       # Determine whether we (the Mu master, presumably) are hosted in this
