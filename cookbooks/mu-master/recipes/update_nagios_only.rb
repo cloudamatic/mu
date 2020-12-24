@@ -139,7 +139,7 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
 
 ["/usr/lib/cgi-bin"].each { |cgidir|
   if Dir.exist?(cgidir)
-    execute "chcon -R -h system_u:object_r:httpd_sys_script_exec_t #{cgidir}" do
+    execute "chcon -R -t httpd_sys_script_exec_t #{cgidir}" do
       not_if "ls -aZ #{cgidir} | grep ':httpd_sys_script_exec_t:'"
       notifies :reload, "service[apache2]", :delayed
     end
