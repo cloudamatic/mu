@@ -226,10 +226,9 @@ if !node['update_nagios_only']
 #  apache2_mod "authnz_ldap"
   apache2_mod_cgid ""
 #  apache2_mod_ssl ""
-  file "/etc/httpd/mods-available/rewrite.load" do
-    content "LoadModule rewrite_module /usr/lib64/httpd/modules/mod_rewrite.so\n"
+  apache2_mod "rewrite" do
+    template_cookbook "mu-master"
   end
-  apache2_mod "rewrite"
 
   apache2_mod "php"
   apache2_default_site "" do
