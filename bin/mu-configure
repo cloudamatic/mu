@@ -125,8 +125,6 @@ end
 
 $possible_addresses.uniq!
 $possible_addresses.reject! { |i| i.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/)}
-pp $possible_addresses
-exit
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
