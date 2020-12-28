@@ -217,18 +217,17 @@ if !node['update_nagios_only']
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
-  apache2_install ""
+  apache2_install "" do
+    docroot_dir "/var/www/html"
+  end
 
   apache2_mod_proxy ""
   apache2_mod_ldap ""
 #  apache2_mod "proxy_http"
-#  apache2_mod "rewrite"
 #  apache2_mod "authnz_ldap"
   apache2_mod_cgid ""
 #  apache2_mod_ssl ""
-  apache2_mod "rewrite" do
-    template_cookbook "mu-master"
-  end
+  apache2_module "rewrite"
 
   apache2_mod "php"
   apache2_default_site "" do
@@ -284,24 +283,6 @@ if !node['update_nagios_only']
     notifies :reload, "service[apache2]", :delayed
   end
   apache2_site "https_proxy"
-
-#  apache2_conf "mu_docs" do
-#    server_name svrname
-#    server_aliases aliases
-#    docroot "/var/www/html"
-#    cookbook "mu-master"
-#    notifies :reload, "service[apache2]", :delayed
-#    action :enable
-#  end
-#  apache2_conf "https_proxy" do
-#    server_name svrname
-#    server_port "443"
-#    server_aliases aliases
-#    docroot "/var/www/html"
-#    cookbook "mu-master"
-#    notifies :reload, "service[apache2]", :delayed
-#    action :enable
-#  end
 
   # configure the appropriate authentication method for the web server
   case node['nagios']['server_auth_method']
