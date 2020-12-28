@@ -226,7 +226,7 @@ if !node['update_nagios_only']
 #  apache2_mod "proxy_http"
 #  apache2_mod "authnz_ldap"
   apache2_mod_cgid ""
-#  apache2_mod_ssl ""
+  apache2_mod_ssl ""
   apache2_module "rewrite"
 
   apache2_mod "php"
