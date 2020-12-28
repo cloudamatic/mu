@@ -46,6 +46,39 @@ if !mypath.match(/^\/opt\/mu/)
   end
 end
 
+
+GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
+if !$NOOP
+  $IN_AWS = false
+  begin
+    Timeout.timeout(2) do
+      instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+      $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+  end
+  $IN_GOOGLE = false
+  begin
+    Timeout.timeout(2) do
+      instance_id = open(
+        "http://metadata.google.internal/computeMetadata/v1/instance/name",
+        "Metadata-Flavor" => "Google"
+      ).read
+      $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+  end
+  $IN_AZURE = false
+  begin
+    Timeout.timeout(2) do
+      instance = open("http://169.254.169.254/metadata/instance/compute?api-version=2017-08-01","Metadata"=>"true").read
+      $IN_AZURE = true if !instance.nil? and instance.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
+  end
+end
+
 $possible_addresses = []
 $impossible_addresses = ['127.0.0.1', 'localhost']
 begin
@@ -69,11 +102,31 @@ Socket.getifaddrs.each { |iface|
     end
   end
 }
+
+if $IN_AWS
+  ["local-ipv4", "public-ipv4"].each { |addr|
+    ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read.chomp
+    $possible_addresses.unshift(ip) if ip and ip =~ /^\d+\.\d+\.\d+\.\d+/
+  }
+elsif $IN_GOOGLE
+  ["ip", "access-configs/0/external-ip"].each { |addr|
+    ip = open(
+      "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/#{addr}",
+      "Metadata-Flavor" => "Google"
+    ).read.chomp
+    $possible_addresses.unshift(ip) if ip and ip =~ /^\d+\.\d+\.\d+\.\d+/
+  }
+elsif $IN_AZURE
+  ["privateIpAddress", "publicIpAddress"].each { |addr|
+    ip = open("http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/#{addr}?api-version=2017-08-01&format=text","Metadata"=>"true").read
+    $possible_addresses.unshift(ip) if ip and ip =~ /^\d+\.\d+\.\d+\.\d+/
+  }
+end
+
 $possible_addresses.uniq!
 $possible_addresses.reject! { |i| i.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/)}
-
-GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
-
+pp $possible_addresses
+exit
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
@@ -476,33 +529,6 @@ if !$NOOP
     end
   end
 
-  $IN_AWS = false
-  begin
-    Timeout.timeout(2) do
-      instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
-      $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
-    end
-  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
-  end
-  $IN_GOOGLE = false
-  begin
-    Timeout.timeout(2) do
-      instance_id = open(
-        "http://metadata.google.internal/computeMetadata/v1/instance/name",
-        "Metadata-Flavor" => "Google"
-      ).read
-      $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
-    end
-  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
-  end
-  $IN_AZURE = false
-  begin
-    Timeout.timeout(2) do
-      instance = open("http://169.254.169.254/metadata/instance/compute?api-version=2017-08-01","Metadata"=>"true").read
-      $IN_AZURE = true if !instance.nil? and instance.size > 0
-    end
-  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
-  end
 
   if $IN_AWS and AMROOT and !$IN_GEM
     Dir.chdir("/")
