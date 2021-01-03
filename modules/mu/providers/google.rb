@@ -983,6 +983,19 @@ MU.log e.message, MU::WARN, details: e.inspect
 
       # Google's Cloud Billing Service API
       # @param subclass [<Google::Apis::CloudbillingV1>]: If specified, will return the class ::Google::Apis::CloudbillingV1::subclass instead of an API client instance
+      def self.budgets(subclass = nil, credentials: nil)
+        require 'google/apis/billingbudgets_v1'
+
+        if subclass.nil?
+          @@budgets_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "BillingbudgetsV1::CloudBillingBudgetService", scopes: ['cloud-platform', 'cloud-billing'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          return @@budgets_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("BillingbudgetsV1").const_get(subclass)
+        end
+      end
+
+      # Google's Cloud Billing Budget Service API
+      # @param subclass [<Google::Apis::CloudbillingV1>]: If specified, will return the class ::Google::Apis::CloudbillingV1::subclass instead of an API client instance
       def self.billing(subclass = nil, credentials: nil)
         require 'google/apis/cloudbilling_v1'
 
@@ -1311,7 +1324,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 
                   svc_name = Regexp.last_match[1]
                   save_verbosity = MU.verbosity
-                  if svc_name != "servicemanagement.googleapis.com" and method_sym != :delete
+                  if !["servicemanagement.googleapis.com", "billingbudgets.googleapis.com"].include?(svc_name) and method_sym != :delete
                     retries += 1
                     @@enable_semaphores[project].synchronize {
                       MU.setLogging(MU::Logger::NORMAL)
@@ -1566,6 +1579,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       @@firestore_api = {}
       @@admin_directory_api = {}
       @@billing_api = {}
+      @@budgets_api = {}
       @@function_api = {}
     end
   end

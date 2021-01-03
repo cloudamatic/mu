@@ -119,6 +119,9 @@ module example.com/cloudfunction
         # Called automatically by {MU::Deploy#createResources}
         def groom
           desc = {}
+
+          func_obj = buildDesc
+
           labels = Hash[@tags.keys.map { |k|
             [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
           ]
@@ -140,6 +143,10 @@ module example.com/cloudfunction
           if cloud_desc.available_memory_mb != @config['memory']
             need_update = true
           end
+          if cloud_desc.service_account_email != func_obj.service_account_email
+            need_update = true
+          end
+
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
               if !cloud_desc.environment_variables or
@@ -199,15 +206,14 @@ module example.com/cloudfunction
           end
 
           if need_update
-            func_obj = buildDesc
             MU.log "Updating Cloud Function #{@cloud_id}", MU::NOTICE, details: func_obj
             begin
               MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
                 @cloud_id, 
                 func_obj
               )
-            rescue ::Google::Apis::ClientError
-              MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR, e.message
               if desc[:source_archive_url]
                 main_file = nil
                 HELLO_WORLDS.each_pair { |runtime, code|
@@ -581,22 +587,14 @@ module example.com/cloudfunction
 
           location = "projects/"+@config['project']+"/locations/"+@config['region']
           sa = nil
-          retries = 0
-          begin
-            sa_ref = MU::Config::Ref.get(@config['service_account'])
-            sa = @deploy.findLitterMate(name: sa_ref.name, type: "users")
-            if !sa or !sa.cloud_desc
-              sleep 10
-            end
-          rescue ::Google::Apis::ClientError => e
-            if e.message.match(/notFound:/)
-              sleep 10
-              retries += 1
-              retry
-            end
-          end while !sa or !sa.cloud_desc and retries < 5
+          need_sa = Proc.new {
+            !sa or !sa.kitten or !sa.kitten.cloud_desc
+          }
+          MU.retrier(loop_if: need_sa, wait: 10, max: 6) { |retries, _wait|
+            sa = MU::Config::Ref.get(@config['service_account'])
+          }
 
-          if !sa or !sa.cloud_desc
+          if need_sa.call()
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
 
@@ -607,7 +605,7 @@ module example.com/cloudfunction
 #            entry_point: "hello_world",
             entry_point: @config['handler'],
             description: @deploy.deploy_id,
-            service_account_email: sa.cloud_desc.email,
+            service_account_email: sa.kitten.cloud_desc.email,
             labels: labels,
             available_memory_mb: @config['memory']
           }
