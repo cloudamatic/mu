@@ -186,7 +186,7 @@ when 'rhel'
     removepackages = ["nagios"]
 
   when 7
-    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'tcl-devel', 'gdbm-devel', 'sqlite-devel', 'tk-devel'])
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'tcl-devel', 'gdbm-devel', 'sqlite-devel', 'tk-devel', 'perl-CGI', 'perl-DBI', 'perl-Data-Dumper', 'perl-Digest-MD5', 'perl-Git-SVN', 'perl-YAML'])
     removepackages = ['nagios', 'firewalld']
 
   when 8
