@@ -228,7 +228,7 @@ if elversion.to_i == 6
   rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
 end
 if elversion.to_i == 7
-  rpms["git"] = "https://s3.amazonaws.com/cloudamatic/mugit-2.30.0-1.el7.x86_64.rpm"
+  rpms["mugit"] = "https://s3.amazonaws.com/cloudamatic/mugit-2.30.0-1.el7.x86_64.rpm"
 end
 # this takes up a huge amount of space, save it until we're fully operational
 if !RUNNING_STANDALONE
@@ -500,7 +500,7 @@ rubies.each { |rubydir|
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
   execute "#{bundler_path} install from #{gemfile_dir}" do
-    command "#{bundler_path} install"
+    command "PATH=/opt/git/bin:${PATH} #{bundler_path} install"
     cwd gemfile_dir
     umask 0022
     not_if "#{bundler_path} check"
