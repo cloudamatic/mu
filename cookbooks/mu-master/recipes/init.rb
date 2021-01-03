@@ -365,6 +365,10 @@ package removepackages do
 end
 
 
+if rpms["mugit"]
+  ENV['PATH'] = "/usr/local/git-current/bin:"+ENV['PATH']
+end
+
 
 file "initial chef-server.rb" do
   path "/etc/opscode/chef-server.rb"
@@ -500,7 +504,7 @@ rubies.each { |rubydir|
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
   execute "#{bundler_path} install from #{gemfile_dir}" do
-    command "PATH=/opt/git/bin:${PATH} #{bundler_path} install"
+    command "#{bundler_path} install"
     cwd gemfile_dir
     umask 0022
     not_if "#{bundler_path} check"
