@@ -222,7 +222,7 @@ rpms = {
   "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
 }
 
-rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el#{elversion}.x86_64.rpm"
+rpms["ruby27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.7.2-1.el#{elversion}.x86_64.rpm"
 if elversion.to_i == 6
   rpms["openssl"] = "https://s3.amazonaws.com/cloudamatic/mussl-1.1.1h-1.el6.x86_64.rpm"
   rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
@@ -335,7 +335,7 @@ end
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
-    if pkg == "ruby25" 
+    if pkg == "ruby27" 
       options '--prefix=/opt/rubies/'
     end
     if pkg == "epel-release" 
