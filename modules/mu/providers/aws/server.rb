@@ -1333,10 +1333,10 @@ module MU
 
           begin
             attachment = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
-            if !["attaching", "attached"].include?(attachment.state)
+            if !attachment.nil? and !["attaching", "attached"].include?(attachment.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
-          end while attachment.state != "attached"
+          end while attachment.nil? or attachment.state != "attached"
 
           # Set delete_on_termination, which for some reason is an instance
           # attribute and not on the attachment
