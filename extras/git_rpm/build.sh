@@ -1,6 +1,7 @@
 #!/bin/sh
 
 rpm -q rpm-build || yum -y install rpm-build
+rpm -q libcurl-devel || yum -y install libcurl-devel
 
 base="/opt/mu/lib/extras/git_rpm"
 
