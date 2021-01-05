@@ -1332,9 +1332,14 @@ module MU
           }
 
           begin
-            attachment = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
-            if !attachment.nil? and !["attaching", "attached"].include?(attachment.state)
-              raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+            att_resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_volumes(volume_ids: [attachment.volume_id])
+            if att_resp and att_resp.volumes and !att_resp.volumes.empty? and
+               att_resp.volumes.first.attachments and
+               !att_resp.volumes.first.attachments.empty?
+              attachment = att_resp.volumes.first.attachments.first
+              if !attachment.nil? and !["attaching", "attached"].include?(attachment.state)
+                raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+              end
             end
           end while attachment.nil? or attachment.state != "attached"
 
