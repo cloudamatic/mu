@@ -494,7 +494,12 @@ rubies.each { |rubydir|
     action :nothing
   end
 
-  gem_package bundler_path do
+  # XXX I'd love a sensible guard for this
+  execute "update rubygems" do
+    commmand "#{gembin} update --system --no-document"
+  end
+
+  gem_package "bundler for #{rubydir}" do
     gem_binary gembin
     package_name "bundler"
     if rubydir == "/usr/local/ruby-current" or File.exists?(bundler_path)
