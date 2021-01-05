@@ -308,24 +308,24 @@ rpm_package "Chef Server upgrade package" do
   only_if { RUNNING_STANDALONE }
 end
 
-# REMOVE OLD RUBYs
-execute "clean up old Ruby 2.1.6" do
-  command "rm -rf /opt/rubies/ruby-2.1.6"
-  ignore_failure true
-  only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
-end
-
-execute "Kill ruby-2.3.1" do
+execute "clean up old ruby-2.3.1 package" do
   command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y; rpm -e ruby23"
   ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
-
-execute "clean up old ruby-2.3.1" do
-  command "rm -rf /opt/rubies/ruby-2.3.1"
+execute "clean up old muby-2.5.3 package" do
+  command "yum erase muby-2.5.3-1.el7.x86_64 -y"
   ignore_failure true
-  only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
+  only_if "rpm -q muby-2.5.3"
 end
+
+%w{2.1.6 2.3.1 2.5.3}.each { |v|
+  execute "clean up old ruby-#{v} directory" do
+    command "rm -rf /opt/rubies/ruby-#{v}"
+    ignore_failure true
+    only_if { ::Dir.exist?("/opt/rubies/ruby-#{v}") }
+  end
+}
 
 execute "yum makecache" do
   action :nothing
@@ -501,6 +501,7 @@ rubies.each { |rubydir|
       action :upgrade
       ignore_failure true
     end
+    version "~> 2.2.3"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
   execute "#{bundler_path} install from #{gemfile_dir}" do
