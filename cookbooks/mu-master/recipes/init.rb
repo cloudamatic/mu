@@ -496,7 +496,7 @@ rubies.each { |rubydir|
 
   # XXX I'd love a sensible guard for this
   execute "update rubygems" do
-    commmand "#{gembin} update --system --no-document"
+    command "#{gembin} update --system --no-document"
   end
 
   gem_package "bundler for #{rubydir}" do
