@@ -219,19 +219,19 @@ if !node['update_nagios_only']
   end
   apache2_install "" do
     docroot_dir "/var/www/html"
+    modules %w{status alias auth_basic authn_core authn_file authz_core authz_groupfile authz_host authz_user autoindex deflate dir env mime negotiation setenvif log_config logio unixd systemd proxy proxy_http rewrite ssl ldap authnz_ldap slotmem_shm}
   end
+  package "mod_ldap"
 
+  # add stock .conf files to the mix where applicable
   apache2_mod_proxy ""
   apache2_mod_ldap ""
-#  apache2_mod "proxy_http"
-#  apache2_mod "authnz_ldap"
   apache2_mod_cgid ""
   apache2_mod_ssl ""
-  apache2_module "rewrite"
 
   apache2_mod "php"
   apache2_default_site "" do
-    action :disable
+    action :enable
   end
 
   # nagios keeps disabling the default vhost, so let's make another one
@@ -256,7 +256,7 @@ if !node['update_nagios_only']
     extend Apache2::Cookbook::Helpers
     service_name lazy { apache_platform_service_name }
     supports restart: true, status: true, reload: true
-    action :nothing
+    action :enable
   end
 
   template '/etc/httpd/sites-available/mu_docs.conf' do
