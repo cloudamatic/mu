@@ -234,8 +234,6 @@ elsif $opts[:ip]
   MU.log "Currently assigned IP address is #{instance.public_ip_address}"
 end
 
-$bucketname = MU.adminBucketName
-
 if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   wd = Dir.getwd
   Dir.chdir("/")
@@ -417,6 +415,7 @@ if $opts[:logs]
 end
 
 if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
+  $bucketname ||= MU.adminBucketName
   if instance.vpc_id.nil? or instance.vpc_id.empty?
     MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
   else
@@ -468,6 +467,7 @@ if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
 end
 
 if $opts[:uploadlogs]
+  $bucketname ||= MU.adminBucketName
   today = Time.new.strftime("%Y%m%d").to_s
   ["master.log", "nodes.log"].each { |log|
     if File.exist?("/Mu_Logs/#{log}-#{today}")
