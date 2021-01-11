@@ -156,6 +156,13 @@ fi
 git config branch.${branch}.remote origin
 git config branch.${branch}.merge refs/heads/$branch
 
+# Make sure any new bootstrappy stuff has been applied
+chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
+
+# Make sure bundler will use a recent git binary
+if [ -d /usr/local/git-current ];then
+  export PATH="/usr/local/git-current/bin:${PATH}"
+fi
 
 if [ "`diff -r $MU_LIBDIR/cookbooks $MU_DATADIR/tmp/cookbook_changes.$$`" != "" ];then
 	rebuild_chef_artifacts=1
