@@ -94,7 +94,7 @@ module MU
           else
             begin
               Timeout.timeout(2) do
-                response = open("#{base_url}/#{cloud}.yaml").read
+                response = URI.open("#{base_url}/#{cloud}.yaml").read
                 images ||= {}
                 images.deep_merge!(YAML.load(response))
                 break
