@@ -513,7 +513,7 @@ end
 
         begin
           Timeout.timeout(4) do
-            instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+            instance_id = URI.open("http://169.254.169.254/latest/meta-data/instance-id").read
             if !instance_id.nil? and instance_id.size > 0
               @@is_in_aws = true
               region = getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
@@ -1333,7 +1333,7 @@ end
         begin
           response = nil
           Timeout.timeout(1) do
-            response = open("#{base_url}/#{param}").read
+            response = URI.open("#{base_url}/#{param}").read
           end
 
           response

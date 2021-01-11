@@ -564,7 +564,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 
         begin
           Timeout.timeout(2) do
-            resp = JSON.parse(open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
+            resp = JSON.parse(URI.open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
             MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", loglevel, details: resp
             if svc != "instance"
               return resp

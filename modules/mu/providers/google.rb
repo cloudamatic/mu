@@ -488,7 +488,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         base_url = "http://metadata.google.internal/computeMetadata/v1"
         begin
           Timeout.timeout(2) do
-            response = open(
+            response = URI.open(
               "#{base_url}/#{param}",
               "Metadata-Flavor" => "Google"
             ).read
