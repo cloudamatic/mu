@@ -219,7 +219,7 @@ if !node['update_nagios_only']
   end
   apache2_install "" do
     docroot_dir "/var/www/html"
-    modules %w{status alias auth_basic authn_core authn_file authz_core authz_groupfile authz_host authz_user autoindex deflate dir env mime negotiation setenvif log_config logio unixd systemd proxy proxy_http rewrite ssl ldap authnz_ldap slotmem_shm}
+    modules %w{status alias auth_basic authn_core authn_file authz_core authz_groupfile authz_host authz_user autoindex deflate dir env mime negotiation setenvif log_config logio unixd systemd headers proxy proxy_http rewrite ssl ldap authnz_ldap slotmem_shm}
   end
   package "mod_ldap"
 
@@ -232,6 +232,7 @@ if !node['update_nagios_only']
   apache2_mod "php"
   apache2_default_site "" do
     action :enable
+    notifies :start, "service[apache2]", :delayed
   end
 
   # nagios keeps disabling the default vhost, so let's make another one

@@ -33,11 +33,14 @@ make
 cd $RPM_BUILD_DIR/ruby-%{version}
 make install
 mkdir -p %{prefix}
-%{prefix}/ruby-%{version}/bin/gem install bundler
+yes | %{prefix}/ruby-%{version}/bin/gem install bundler --version '~> 2.2.3' --force
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/ruby-%{version} $RPM_BUILD_ROOT%{prefix}/
-mkdir -p $RPM_BUILD_ROOT/usr/local/
+mkdir -p $RPM_BUILD_ROOT/usr/local/bin
 ln -s %{prefix}/ruby-%{version} $RPM_BUILD_ROOT/usr/local/ruby-current
+mkdir -p /usr/local/bin
+rm -f $RPM_BUILD_ROOT/usr/local/bin/ruby
+ln -s /usr/local/ruby-current/bin/ruby $RPM_BUILD_ROOT/usr/local/bin/ruby
 
 %clean
 cd $RPM_BUILD_DIR/ruby-%{version}
@@ -46,3 +49,4 @@ make clean
 %files
 %{prefix}/ruby-%{version}/*
 /usr/local/ruby-current
+/usr/local/bin/ruby
