@@ -755,7 +755,7 @@ if !$NOOP
       ["public-ipv4", "local-ipv4"].each { |addr|
         begin
         Timeout.timeout(2) do
-          ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read
+          ip = URI.open("http://169.254.169.254/latest/meta-data/#{addr}").read
           ips << ip if !ip.nil? and ip.size > 0
         end
         rescue OpenURI::HTTPError, Timeout::Error, SocketError
@@ -784,10 +784,10 @@ if !$NOOP
     $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
     if $IN_AWS
   # XXX move this crap to a callback hook for puttering around in the AWS submenu
-      aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
+      aws = JSON.parse(URI.open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
       iam = nil
       begin
-        iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
+        iam = URI.open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
       rescue OpenURI::HTTPError, SocketError
       end
   #    $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
