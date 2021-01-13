@@ -29,13 +29,15 @@ module MU
           attr_reader :mu_name
           attr_reader :name
           attr_reader :az
+          attr_reader :config
           attr_reader :cloud_desc
 
           # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
           def initialize(parent, config)
-            @parent = parent
             @config = MU::Config.manxify(config)
+            MU::Cloud::AWS.resourceInitHook(self, @deploy)
+            @parent = parent
             @cloud_id = config['cloud_id']
             @mu_name = config['mu_name']
             @name = config['name']
