@@ -460,7 +460,7 @@ module MU
             ]
           )
           if resp.nil? or resp.subnets.nil? or resp.subnets.empty?
-            MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
+            MU.log "Got empty results when trying to list subnets in #{@cloud_id} (#{@region})", MU::WARN
             return []
           end
 
