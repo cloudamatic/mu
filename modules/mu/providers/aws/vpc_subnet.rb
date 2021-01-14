@@ -39,6 +39,7 @@ module MU
             MU::Cloud::AWS.resourceInitHook(self, @deploy)
             @parent = parent
             @cloud_id = config['cloud_id']
+            @credentials ||= config['credentials']
             @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
