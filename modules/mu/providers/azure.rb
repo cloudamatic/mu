@@ -288,9 +288,14 @@ module MU
           raise MuError, "Nil response from Azure API attempting list_locations(#{subscription})"
         end
 
-        sdk_response.value.each do | region |
-          @@regions.push(region.name)
-        end
+        sdk_response.value.each { |region|
+          begin
+            listInstanceTypes(region.name) # use this to filter for broken regions
+            @@regions.push(region.name)
+          rescue APIError => e
+            MU.log "Azure region "+region.name+" does not appear operational, skipping", MU::WARN
+          end
+        }
 
         return us_only ? @@regions.reject { |r| !r.match(/us\d?$/) } : @@regions
       end
@@ -1130,9 +1135,9 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
                       retry
                     end
 
-                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
-                    MU.log e.backtrace[0], MU::WARN, details: parsed
-                    raise MU::Cloud::Azure::APIError, err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})"
+#                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
+#                    MU.log e.backtrace[0], MU::WARN, details: parsed
+                    raise MU::Cloud::Azure::APIError.new err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})", details: parsed
                   end
                 end
               rescue JSON::ParserError
