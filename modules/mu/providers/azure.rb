@@ -1137,7 +1137,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 
 #                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
 #                    MU.log e.backtrace[0], MU::WARN, details: parsed
-                    raise MU::Cloud::Azure::APIError.new err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})", details: parsed
+                    raise MU::Cloud::Azure::APIError.new err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})", details: parsed, silent: true
                   end
                 end
               rescue JSON::ParserError
