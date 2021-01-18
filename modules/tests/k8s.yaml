@@ -27,7 +27,7 @@ container_clusters:
     comment: meep
   vpc:
     vpc_name: k8s
-    subnet_pref: all_private
+    subnet_pref: all_public
   kubernetes_resources:
   - apiVersion: v1
     kind: Service

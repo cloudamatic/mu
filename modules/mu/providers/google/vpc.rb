@@ -442,20 +442,28 @@ end
 
         # Check for a subnet in this VPC matching one or more of the specified
         # criteria, and return it if found.
-        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil, region: nil)
+        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil, region: nil, subnet_mu_name: nil)
           if !cloud_id.nil? and cloud_id.match(/^https:\/\//)
             cloud_id.match(/\/regions\/([^\/]+)\/subnetworks\/([^\/]+)$/)
             region = Regexp.last_match[1]
             cloud_id = Regexp.last_match[2]
             cloud_id.gsub!(/.*?\//, "")
           end
-          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block}, region: #{region})", MU::DEBUG, details: caller[0]
+          
+          if name
+            subnet_mu_name ||= @config['scrub_mu_isms'] ? @cloud_id+name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(name, max_length: 61))
+          end
+
+          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block}, region: #{region}, subnet_mu_name: #{subnet_mu_name})", MU::DEBUG, details: caller[0]
           subnets.each { |subnet|
             next if region and subnet.az != region
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and
                   subnet.name.downcase.to_s == name.downcase.to_s
+              return subnet
+            elsif !subnet_mu_name.nil? and !subnet.name.nil? and
+                  subnet.name.downcase.to_s == subnet_mu_name.downcase.to_s
               return subnet
             end
           }
@@ -931,6 +939,14 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 else
                   route['nat_host_name'] = nat['name']
                   route['priority'] = 100
+                  MU::Config.addDependency(vpc, nat['name'], "server", phase: "groom", no_create_wait: true)
+                  vpc["bastion"] = MU::Config::Ref.get(
+                    name: nat['name'],
+                    cloud: vpc['cloud'],
+                    credentials: vpc['credentials'],
+                    type: "servers"
+                  )
+
                 end
               end
             }

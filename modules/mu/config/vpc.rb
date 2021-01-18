@@ -540,7 +540,7 @@ module MU
             end
           end
 
-          # Feeling that, generate a generic bastion/NAT host to do the job.
+          # Failing that, generate a generic bastion/NAT host to do the job.
           # Clouds that don't have some kind of native NAT gateway can also
           # leverage this host to honor "gateway" => "#NAT" situations.
           if !can_peer and !already_peered and have_public and vpc["create_bastion"]
@@ -563,13 +563,13 @@ module MU
               "name" => vpc["name"],
               "subnet_pref" => "public"
             }
-            MU::Config.addDependency(vpc, bastion['name'], "server", no_create_wait: true)
-            vpc["bastion"] = MU::Config::Ref.get(
-              name: bastion['name'],
-              cloud: vpc['cloud'],
-              credentials: vpc['credentials'],
-              type: "servers"
-            )
+#            MU::Config.addDependency(vpc, bastion['name'], "server", no_create_wait: true)
+#            vpc["bastion"] = MU::Config::Ref.get(
+#              name: bastion['name'],
+#              cloud: vpc['cloud'],
+#              credentials: vpc['credentials'],
+#              type: "servers"
+#            )
 
             ok = false if !configurator.insertKitten(bastion, "servers", true)
           end
