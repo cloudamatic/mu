@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.4.0)
+    cloud-mu (3.5.0)
       addressable (~> 2.5)
       aws-sdk (~> 3.0)
       azure_sdk (~> 0.65)
