@@ -77,6 +77,12 @@ service "iptables" do
   only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
 end
 
+service "firewalld" do
+  ignore_failure true
+  action :nothing
+  only_if "/bin/systemctl -l --no-pager | grep firewalld.service"
+end
+
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
 # Server upgrades.
 directory "/var/run/postgresql" do
@@ -130,11 +136,13 @@ execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :stop, "service[iptables]", :before
+  notifies :stop, "service[firewalld]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
+    notifies :start, "service[firewalld]", :immediately
   else
     notifies :run, "execute[Chef Server rabbitmq workaround]", :before
   end
@@ -145,11 +153,13 @@ execute "upgrade Chef server" do
   action :nothing
   timeout 1200 # this can take a while
   notifies :stop, "service[iptables]", :before
+  notifies :stop, "service[firewalld]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
+    notifies :start, "service[firewalld]", :immediately
   end
   only_if { RUNNING_STANDALONE }
 end
@@ -162,8 +172,10 @@ service "chef-server" do
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :stop, "service[iptables]", :before
+  notifies :stop, "service[firewalld]", :before
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
+    notifies :start, "service[firewalld]", :immediately
   end
   only_if { RUNNING_STANDALONE }
 end
