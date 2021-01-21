@@ -184,7 +184,9 @@ set -e
 echo "${GREEN}Cleaning gems in ${BOLD}/usr/local/ruby-current${NORM}${GREEN}${NORM}"
 cd $MU_LIBDIR/modules
 /usr/local/ruby-current/bin/bundle update
+set +e
 /usr/local/ruby-current/bin/bundle clean --force
+set -e
 cd
 
 chef_major="`/opt/chef/bin/chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
@@ -197,7 +199,7 @@ if [ "$chef_major" == "12" ];then
   elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
     DIST_VERSION="6"
   fi
-  rpm -Uvh https://packages.chef.io/files/stable/chef/14.13.11/el/${DIST_VERSION}/chef-14.13.11-1.el${DIST_VERSION}.x86_64.rpm
+  rpm -Uvh https://packages.chef.io/files/stable/chef/16.9.29/el/${DIST_VERSION}/chef-16.9.29-1.el${DIST_VERSION}.aarch64.rpm
 fi
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
