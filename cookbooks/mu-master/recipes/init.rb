@@ -132,7 +132,7 @@ execute "reconfigure Chef server" do
   notifies :stop, "service[iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :restart, "service[chef-server]", :immediately
+#  notifies :restart, "service[chef-server]", :immediately
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
   end
