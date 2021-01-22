@@ -42,6 +42,7 @@ fi
 bindir="$MU_INSTALLDIR/bin"
 MU_LIBDIR="$MU_INSTALLDIR/lib"
 MU_DATADIR="$MU_INSTALLDIR/var"
+CHEF_CLIENT_VERSION=`grep '^CHEF_CLIENT_VERSION=' /opt/mu/lib/install/installer |cut -d\" -f2`
 
 #################################################
 ################## Updated Cmds ################
@@ -156,6 +157,8 @@ fi
 git config branch.${branch}.remote origin
 git config branch.${branch}.merge refs/heads/$branch
 
+CHEF_CLIENT_VERSION=`grep '^CHEF_CLIENT_VERSION=' /opt/mu/lib/install/installer |cut -d\" -f2`
+
 # Make sure any new bootstrappy stuff has been applied
 chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
 
@@ -189,18 +192,17 @@ set +e
 set -e
 cd
 
-chef_major="`/opt/chef/bin/chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
-if [ "$chef_major" == "12" ];then
-  DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
-  # IS_AMAZON=0
-  if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
-    DIST_VERSION=6
-  # IS_AMAZON=1
-  elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
-    DIST_VERSION="6"
-  fi
-  rpm -Uvh https://packages.chef.io/files/stable/chef/16.9.29/el/${DIST_VERSION}/chef-16.9.29-1.el${DIST_VERSION}.aarch64.rpm
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
+# IS_AMAZON=0
+if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+  DIST_VERSION=6
+# IS_AMAZON=1
+elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+  DIST_VERSION="6"
+else
+  DIST_VERSION="7"
 fi
+rpm -Uvh https://packages.chef.io/files/stable/chef/${CHEF_CLIENT_VERSION}/el/${DIST_VERSION}/chef-${CHEF_CLIENT_VERSION}-1.el${DIST_VERSION}.aarch64.rpm
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 
