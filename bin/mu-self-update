@@ -203,6 +203,7 @@ else
   DIST_VERSION="7"
 fi
 
+export CHEF_LICENSE="accept-silent"
 if ! rpm -q chef;then
   yes | rpm -ivh https://packages.chef.io/files/stable/chef/${CHEF_CLIENT_VERSION}/el/${DIST_VERSION}/chef-${CHEF_CLIENT_VERSION}-1.el${DIST_VERSION}.x86_64.rpm
 else
