@@ -42,7 +42,6 @@ fi
 bindir="$MU_INSTALLDIR/bin"
 MU_LIBDIR="$MU_INSTALLDIR/lib"
 MU_DATADIR="$MU_INSTALLDIR/var"
-CHEF_CLIENT_VERSION=`grep '^CHEF_CLIENT_VERSION=' /opt/mu/lib/install/installer |cut -d\" -f2`
 
 #################################################
 ################## Updated Cmds ################
@@ -203,7 +202,8 @@ else
   DIST_VERSION="7"
 fi
 
-export CHEF_LICENSE="accept-silent"
+grep ^chef_license /etc/chef/client.rb || echo "chef_license 'accept'" >> /etc/chef/client.rb
+
 if ! rpm -q chef;then
   yes | rpm -ivh https://packages.chef.io/files/stable/chef/${CHEF_CLIENT_VERSION}/el/${DIST_VERSION}/chef-${CHEF_CLIENT_VERSION}-1.el${DIST_VERSION}.x86_64.rpm
 else
