@@ -202,7 +202,7 @@ elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
 else
   DIST_VERSION="7"
 fi
-rpm -Uvh https://packages.chef.io/files/stable/chef/${CHEF_CLIENT_VERSION}/el/${DIST_VERSION}/chef-${CHEF_CLIENT_VERSION}-1.el${DIST_VERSION}.aarch64.rpm
+rpm -Uvh https://packages.chef.io/files/stable/chef/${CHEF_CLIENT_VERSION}/el/${DIST_VERSION}/chef-${CHEF_CLIENT_VERSION}-1.el${DIST_VERSION}.x86_64
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 
