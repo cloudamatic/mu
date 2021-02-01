@@ -43,9 +43,8 @@ if [ ! -f /opt/chef/bin/chef-apply ];then
 fi
 set -x
 set -e
+
 if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
-  mkdir -p /etc/chef
-  grep ^chef_license /etc/chef/client.rb || echo "chef_license 'accept'" >> /etc/chef/client.rb
 
   # Drop any old Chef packages laying around, first
   /usr/bin/yum -y erase chef || /bin/rpm -e chef
@@ -53,6 +52,9 @@ if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
   /usr/bin/curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
   /bin/sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
 fi
+
+mkdir -p /etc/chef
+grep ^chef_license /etc/chef/client.rb || echo "chef_license 'accept'" >> /etc/chef/client.rb
 
 
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
