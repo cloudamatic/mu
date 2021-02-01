@@ -44,6 +44,9 @@ fi
 set -x
 set -e
 if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
+  mkdir -p /etc/chef
+  grep ^chef_license /etc/chef/client.rb || echo "chef_license 'accept'" >> /etc/chef/client.rb
+
   # Drop any old Chef packages laying around, first
   /usr/bin/yum -y erase chef || /bin/rpm -e chef
   /bin/rm -rf /opt/chef ~/.berkshelf ~/.chef /etc/chef
