@@ -509,8 +509,10 @@ rubies.each { |rubydir|
   end
 
   # XXX I'd love a sensible guard for this
-  execute "update rubygems" do
-    command "#{gembin} update --system --no-document"
+  if rubydir == "/usr/local/ruby-current"
+    execute "update rubygems" do
+      command "#{gembin} update --system --no-document"
+    end
   end
 
   gem_package "bundler for #{rubydir}" do
