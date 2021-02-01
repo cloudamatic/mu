@@ -55,6 +55,7 @@ fi
 
 mkdir -p /etc/chef
 grep ^chef_license /etc/chef/client.rb || echo "chef_license 'accept'" >> /etc/chef/client.rb
+export CHEF_LICENSE="accept"
 
 
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
