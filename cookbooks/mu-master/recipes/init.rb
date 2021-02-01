@@ -527,7 +527,7 @@ rubies.each { |rubydir|
     command "PATH=/usr/local/git-current/bin:/usr/local/git-current/libexec/git-core:${PATH} #{bundler_path} install"
     cwd gemfile_dir
     umask 0022
-    not_if { system("cd #{gemfile_dir} && #{bundler_path} check"); (!RUNNING_STANDALONE and $?.exitstatus) }
+    not_if { system("cd #{gemfile_dir} && #{bundler_path} check"); (RUNNING_STANDALONE or $?.exitstatus) }
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
     # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
