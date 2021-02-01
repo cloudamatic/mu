@@ -523,7 +523,7 @@ rubies.each { |rubydir|
     version "~> 2.2.3"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
-  execute "#{bundler_path} install from #{gemfile_dir}" do
+  execute "#{bundler_path} install from #{gemfile_dir} for #{rubydir} " do
     command "PATH=/usr/local/git-current/bin:/usr/local/git-current/libexec/git-core:${PATH} #{bundler_path} install"
     cwd gemfile_dir
     umask 0022
