@@ -523,10 +523,10 @@ rubies.each { |rubydir|
     version "~> 2.2.3"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
-  execute "#{bundler_path} install from #{gemfile_dir} for #{rubydir} " do
+  execute "#{bundler_path} install from #{gemfile_dir} for #{rubydir}" do
     command "PATH=/usr/local/git-current/bin:/usr/local/git-current/libexec/git-core:${PATH} #{bundler_path} install"
     cwd gemfile_dir
-    umask 0022
+    umask "0022"
     if !RUNNING_STANDALONE
       not_if { system("cd #{gemfile_dir} && #{bundler_path} check"); $?.exitstatus }
     end
@@ -583,13 +583,13 @@ require "simple-password-gen"
 # XXX this would make an awesome library
 execute "create mu Chef user" do
   command "/opt/opscode/bin/chef-server-ctl user-create mu Mu Master root@example.com #{Password.pronounceable} -f #{MU_BASE}/var/users/mu/mu.user.key"
-  umask 0277
+  umask "0277"
   not_if "/opt/opscode/bin/chef-server-ctl user-list | grep '^mu$'"
   notifies :start, "service[chef-server]", :before
 end
 execute "create mu Chef org" do
   command "/opt/opscode/bin/chef-server-ctl org-create mu mu -a mu -f #{MU_BASE}/var/orgs/mu/mu.org.key"
-  umask 0277
+  umask "0277"
   not_if "/opt/opscode/bin/chef-server-ctl org-list | grep '^mu$'"
   notifies :start, "service[chef-server]", :before
 end
@@ -634,7 +634,7 @@ bash "add localhost ssh to authorized_keys and config" do
   action :nothing
 end
 execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
-  umask 0177
+  umask "0177"
   not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
