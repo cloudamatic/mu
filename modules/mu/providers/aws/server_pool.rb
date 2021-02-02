@@ -1131,7 +1131,7 @@ module MU
               region: @region
             )[@region]
           end
-          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @credentials)
+          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"].to_s, credentials: @credentials)
 
           oldlaunch = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_launch_configurations(
             launch_configuration_names: [@mu_name]
