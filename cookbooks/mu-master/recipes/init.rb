@@ -508,13 +508,6 @@ rubies.each { |rubydir|
     action :nothing
   end
 
-  # XXX I'd love a sensible guard for this
-  if rubydir == "/usr/local/ruby-current"
-    execute "update rubygems" do
-      command "#{gembin} update --system 2.7.11 --no-document"
-    end
-  end
-
   gem_package "bundler for #{rubydir}" do
     gem_binary gembin
     package_name "bundler"
