@@ -522,7 +522,7 @@ rubies.each { |rubydir|
       action :upgrade
       ignore_failure true
     end
-    version "~> 2.2.3"
+    version "~> 2.1.4"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
   execute "#{bundler_path} install from #{gemfile_dir} for #{rubydir}" do
