@@ -188,6 +188,9 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, 
       nodeclasses.each_pair { |nodeclass, servers|
         servers.each_pair { |mu_name, server|
           next if nodes.size > 0 and !nodes.include?(mu_name)
+          server.myFirewallRules.each { |fw|
+            fw.groom
+          }
           count = count + 1
           child = Process.fork {
             begin
