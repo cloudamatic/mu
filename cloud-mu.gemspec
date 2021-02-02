@@ -40,7 +40,7 @@ EOF
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency "aws-sdk", "~> 3.0"
   s.add_runtime_dependency 'azure_sdk', '~> 0.65'
-  s.add_runtime_dependency 'bundler', "~> 2.2.3"
+  s.add_runtime_dependency 'bundler', "~> 2.1.4"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'colorize', "~> 0.8"

@@ -33,7 +33,7 @@ make
 cd $RPM_BUILD_DIR/ruby-%{version}
 make install
 mkdir -p %{prefix}
-yes | %{prefix}/ruby-%{version}/bin/gem install bundler --version '~> 2.2.3' --force
+yes | %{prefix}/ruby-%{version}/bin/gem install bundler --version '~> 2.1.4' --force
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/ruby-%{version} $RPM_BUILD_ROOT%{prefix}/
 mkdir -p $RPM_BUILD_ROOT/usr/local/bin
