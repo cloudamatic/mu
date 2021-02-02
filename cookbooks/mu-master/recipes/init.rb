@@ -642,9 +642,9 @@ end
 
 execute "create MU-MASTER Chef client" do
   if SSH_USER == "root"
-    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
+    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} 127.0.0.1"
   else
-    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -x #{SSH_USER} --sudo 127.0.0.1"
+    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --sudo 127.0.0.1"
   end
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
   only_if "/opt/chef/bin/knife ssl check" # make sure we don't wipe ourselves due to unrelated SSL issues
