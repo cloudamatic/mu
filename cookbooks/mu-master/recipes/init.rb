@@ -523,7 +523,7 @@ rubies.each { |rubydir|
     cwd gemfile_dir
     umask "0022"
     if !RUNNING_STANDALONE
-      not_if { system("cd #{gemfile_dir} && #{bundler_path} check"); $?.exitstatus }
+      not_if { system("cd #{gemfile_dir} && #{bundler_path} check 2>&1"); $?.exitstatus }
     end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"

@@ -1467,6 +1467,7 @@ if !$NOOP
     system("chef-client -o 'recipe[mu-master::vault]'")
   end
 
+  set389DSCreds
   if $MU_CFG['ldap']['type'] == "389 Directory Services"
     begin
       MU::Master::LDAP.listUsers
@@ -1476,7 +1477,6 @@ if !$NOOP
     if $INITIALIZE or $CHANGES.include?("389ds")
       File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exist?("/root/389ds.tmp/389-directory-setup.inf")
       MU.log "Configuring 389 Directory Services", MU::NOTICE
-      set389DSCreds
       system("chef-client -o 'recipe[mu-master::389ds]'")
       exit 1 if $? != 0
       MU::Master::LDAP.initLocalLDAP
