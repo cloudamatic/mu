@@ -500,6 +500,19 @@ module MU
             # Of course we might be loading up a dummy subnet object from a
             # foreign or non-Mu-created VPC and subnet. So make something up.
             if @subnets.empty?
+              nets_by_block = {}
+
+              # Attempt to dig the canonical resource name out of
+              # deployment metadata, if it exists
+              if @deploy and @deploy.deployment and
+                 @deploy.deployment['vpcs'] and
+                 @deploy.deployment['vpcs'][@config['name']] and
+                 @deploy.deployment['vpcs'][@config['name']]['subnets']
+                @deploy.deployment['vpcs'][@config['name']]['subnets'].each { |s|
+                  nets_by_block[s["ip_block"]] = s
+                }
+              end
+
               resp.subnets.each { |desc|
                 subnet = {
                   "ip_block" => desc.cidr_block,
@@ -508,7 +521,11 @@ module MU
                   'region' => @region,
                   'credentials' => @credentials,
                 }
-                subnet['name'] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+                if nets_by_block[desc.cidr_block] and
+                   nets_by_block[desc.cidr_block]["name"]
+                  subnet['name'] = nets_by_block[desc.cidr_block]["name"]
+                end
+                subnet['name'] ||= subnet["ip_block"].gsub(/[\.\/]/, "_")
                 subnet['mu_name'] = @mu_name+"-"+subnet['name']
                 @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
               }

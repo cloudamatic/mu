@@ -274,6 +274,10 @@ module MU
               subnet_obj = mp_vpc.subnets.select { |s|
                 s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
               }.first
+              if !subnet_obj
+                MU.log "Failed to find live subnet matching configured mount_point", MU::WARN, details: mp["vpc"]
+                next
+              end
               mount_target = nil
               mount_targets.each { |t|
                 subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)

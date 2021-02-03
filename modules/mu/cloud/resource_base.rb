@@ -912,7 +912,7 @@ module MU
             }
 
             @deploydata = @cloudobj.deploydata
-            @config = @cloudobj.config
+            @config = MU::Config.manxify(@cloudobj.config)
             retval
           end
         } # end instance method list
