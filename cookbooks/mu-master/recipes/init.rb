@@ -132,8 +132,12 @@ file "use a clean /etc/hosts during install" do
   not_if { ::Dir.exist?("#{MU_BASE}/lib/.git") }
 end
 
+execute "modprobe br_netfilter" do
+  action :nothing
+end
+
 execute "reconfigure Chef server" do
-  command "/opt/opscode/bin/chef-server-ctl reconfigure"
+  command "CHEF_LICENSE=\"accept\" /opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :stop, "service[iptables]", :before
   notifies :stop, "service[firewalld]", :before
@@ -149,11 +153,12 @@ execute "reconfigure Chef server" do
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
-  command "/opt/opscode/bin/chef-server-ctl upgrade"
+  command "CHEF_LICENSE=\"accept\" /opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
   timeout 1200 # this can take a while
   notifies :stop, "service[iptables]", :before
   notifies :stop, "service[firewalld]", :before
+  notifies :run, "execute[modprobe br_netfilter]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
