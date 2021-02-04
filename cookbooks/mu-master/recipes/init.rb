@@ -456,7 +456,7 @@ end
 # can actually fit on normal root disks until we have enough code and
 # credentials to roll a dedicated /opt.
 TMPDIR = Dir.mktmpdir
-gemfile_dir = if RUNNING_STANDALONE
+gemfile_dir = if RUNNING_STANDALONE and !File.readlines("/etc/mtab").grep(/\s\/opt\s/).any?
   ruby_block "set up alternate install-time Gemfile" do # ~FC014
     block do
       exclude_gems = %w{aws-sdk azure_sdk google-api-client}
@@ -653,7 +653,6 @@ execute "create MU-MASTER Chef client" do
     command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
-  only_if "/opt/chef/bin/knife ssl check" # make sure we don't wipe ourselves due to unrelated SSL issues
   notifies :delete, "file[/etc/chef/client.pem]", :before
   notifies :delete, "file[/etc/chef/validation.pem]", :before
   notifies :start, "service[chef-server]", :before
