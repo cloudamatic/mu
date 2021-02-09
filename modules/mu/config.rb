@@ -892,6 +892,10 @@ module MU
           deleteme = []
 
           resource["dependencies"].each { |dependency|
+            dependency["their_phase"] ||= dependency["phase"]
+            dependency.delete("phase")
+            dependency["my_phase"] ||= dependency["no_create_wait"] ? "groom" : "create"
+            dependency.delete("no_create_wait")
             # make sure the thing we depend on really exists
             sibling = haveLitterMate?(dependency['name'], dependency['type'])
             if !sibling
@@ -929,10 +933,23 @@ module MU
               end
             end
 
+            if dependency['their_phase'] == "groom"
+              sibling['dependencies'].each { |sib_dep|
+                next if sib_dep['type'] != cfg_name or sib_dep['their_phase'] != "groom"
+                cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
+MU.log "#{cfg_name} #{resource['name']}", MU::NOTICE, details: sip_dep
+                if cousin and cousin['name'] == resource['name']
+                  MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['type']} #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
+                  ok = false
+                end
+              }
+            end
+
             # Check for a circular relationship that will lead to a deadlock
             # when creating resource. This only goes one layer deep, and does
             # not consider groom-phase deadlocks.
-            if dependency['phase'] == "groom" or dependency['no_create_wait'] or (
+            if dependency['their_phase'] == "groom" or
+               dependency['my_phase'] == "groom" or (
                  !MU::Cloud.resourceClass(sibling['cloud'], type).deps_wait_on_my_creation and
                  !MU::Cloud.resourceClass(resource['cloud'], type).waits_on_parent_completion
                )
@@ -941,7 +958,7 @@ module MU
 
             if sibling['dependencies']
               sibling['dependencies'].each { |sib_dep|
-                next if sib_dep['type'] != cfg_name or sib_dep['no_create_wait']
+                next if sib_dep['type'] != cfg_name or sib_dep['my_phase'] == "groom"
                 cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
                 if cousin and cousin['name'] == resource['name']
                   MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['type']} #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]

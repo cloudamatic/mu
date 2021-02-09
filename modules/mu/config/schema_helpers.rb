@@ -185,15 +185,24 @@ module MU
               "type" => "string",
               "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
             },
-            "phase" => {
+            "my_phase" => {
+              "type" => "string",
+              "description" => "Which part of our creation process should be waiting?",
+              "enum" => ["create", "groom"]
+            },
+            "their_phase" => {
               "type" => "string",
               "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
               "enum" => ["create", "groom"]
             },
+            "phase" => {
+              "type" => "string",
+              "description" => "Alias for {their_phase}",
+              "enum" => ["create", "groom"]
+            },
             "no_create_wait" => {
               "type" => "boolean",
-              "default" => false,
-              "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
+              "description" => "DEPRECATED- setting +true+ is the same as setting {my_phase} to +groom+; setting to +false+ is the same as setting {my_phase} to +create+. If both +no_create_wait+ and {my_phase} are specified, {my_phase} takes precedence."
             }
           }
         }

@@ -536,8 +536,9 @@ MESSAGE_END
     #########################################################################
     def addDependentThread(parent, child)
       @dependency_semaphore.synchronize {
-        @dependency_threads[child] = Array.new if !@dependency_threads[child]
+        @dependency_threads[child] ||= []
         @dependency_threads[child] << parent
+        @dependency_threads[child].uniq!
         MU.log "Thread #{child} will wait on #{parent}", MU::DEBUG, details: @dependency_threads[child]
       }
     end
@@ -568,6 +569,7 @@ MESSAGE_END
 
         MU.log "Setting dependencies for #{name}", MU::DEBUG, details: resource["dependencies"]
         if !resource["dependencies"].nil? then
+
           resource["dependencies"].each { |dependency|
             parent_class = MU::Cloud.loadBaseType(dependency['type'])
 
@@ -577,31 +579,41 @@ MESSAGE_END
             parent = parent_type+"_"+dependency["name"]+"_create"
             addDependentThread(parent, "#{name}_groom")
 
+            # if we've explicitly declared each end of the dependency, roll
+            # with that and don't meddle further
+            if dependency["my_phase"] and dependency["their_phase"]
+              parent = parent_type+"_"+dependency["name"]+"_"+dependency["their_phase"]
+              addDependentThread(parent, name+"_"+dependency["my_phase"])
+              next
+            end
+
             # should our creation thread also wait on our parent's create?
-            if !dependency["no_create_wait"] and
+            if dependency["my_phase"] == "create" and
                (resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
-               dependency['phase'] == "create" or
-               parent_class.deps_wait_on_my_creation)
+                parent_class.deps_wait_on_my_creation
+               )
               addDependentThread(parent, "#{name}_create")
             end
 
 
             # how about our groom thread waiting on our parents' grooms?
-            if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
+            if (dependency['their_phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
               parent = parent_type+"_"+dependency["name"]+"_groom"
               addDependentThread(parent, "#{name}_groom")
-              if !dependency["no_create_wait"] and (
+              if dependency["my_phase"] == "groom" and 
+                 (dependency['their_phase'] == "create" or
+                  (!dependency['their_phase'] and
                    parent_class.deps_wait_on_my_creation or
-                   resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
-                   dependency['phase'] == "groom"
+                   resource["#MU_CLOUDCLASS"].waits_on_parent_completion)
                  )
                 addDependentThread(parent, "#{name}_create")
               end
             end
           }
         end
-        MU.log "Thread dependencies #{res_type}[#{name}]", MU::DEBUG, details: { "create" => @dependency_threads["#{name}_create"], "groom" => @dependency_threads["#{name}_groom"] }
-        @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
+        @dependency_threads["#{name}_groom"].concat(["#{name}_create", "mu_groom_container"])
+        @dependency_threads["#{name}_groom"].uniq!
+        MU.log "Thread dependencies #{res_type}[#{name}]", MU::DEBUG, details: { "create" => @dependency_threads["#{name}_create"], "groom" => @dependency_threads["#{name}_groom"] } if res_type == "role" and resource['name'] == "dynamostream-to-es"
       }
     end
 
