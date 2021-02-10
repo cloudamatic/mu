@@ -625,18 +625,36 @@ if SSH_DIR != ROOT_SSH_DIR
     mode 0700
   end
 end
-bash "add localhost ssh to authorized_keys and config" do
+bash "add localhost ssh to config" do
   code <<-EOH
-    cat #{ROOT_SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys
     echo "Host localhost" >> #{ROOT_SSH_DIR}/config
     echo "  IdentityFile #{ROOT_SSH_DIR}/id_rsa" >> #{ROOT_SSH_DIR}/config
   EOH
   action :nothing
 end
+execute "add localhost key to authorized_keys" do
+  command "cat #{ROOT_SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys"
+  only_if {
+    found = false
+    pubkey = if File.exists?("#{SSH_DIR}/authorized_keys")
+      File.read("#{ROOT_SSH_DIR}/id_rsa.pub").chomp
+    end
+    if pubkey and File.exists?("#{SSH_DIR}/authorized_keys")
+      authfile = File.read("#{ROOT_SSH_DIR}/authorized_keys")
+      authfile.each_line { |l|
+        if l =~ /#{Regexp.quote(pubkey)}/
+          found = true
+        end
+      }
+    end
+    !found
+  }
+end
 execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
   umask "0177"
   not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
-  notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
+  notifies :run, "bash[add localhost ssh to config]", :immediately
+  notifies :run, "execute[add localhost key to authorized_keys]", :immediately
 end
 file "/etc/chef/client.pem" do
   action :nothing
@@ -653,6 +671,7 @@ execute "create MU-MASTER Chef client" do
     command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
+  notifies :run, "execute[add localhost key to authorized_keys]", :before
   notifies :delete, "file[/etc/chef/client.pem]", :before
   notifies :delete, "file[/etc/chef/validation.pem]", :before
   notifies :start, "service[chef-server]", :before
