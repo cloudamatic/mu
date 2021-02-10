@@ -30,6 +30,10 @@ if [ -z $MU_CHEF_CACHE ];then
 fi
 manifest="$MU_CHEF_CACHE/mu_manifest"
 berksdir="$HOMEDIR/.berkshelf"
+knife_cfg=""
+if [ -f "$HOMEDIR/.chef/knife.rb" ];then
+  knife_cfg="-c $HOMEDIR/.chef/knife.rb"
+fi
 
 rm -rf "${berksdir}/" # Just... don't trust it to check cache correctly
 
@@ -190,7 +194,7 @@ add_berkshelf_cookbooks()
     cd $repodir
     set +e
     for name in $berkshelf_cookbooks;do
-      $knife cookbook delete $name --yes -a
+      $knife cookbook $knife_cfg delete $name --yes -a
     done
     set -e
   fi
@@ -361,24 +365,24 @@ fi
 if [ "$nopurge" == "" -a "$all" == "1" ];then
   if [ "$use_on_disk" == "1" -o "$all" == "1" ];then
     if [ "$cookbooks_only" == "1" ];then
-      $knife cookbook bulk delete --purge '.+' --yes 2>/dev/null
+      $knife cookbook $knife_cfg bulk delete --purge '.+' --yes 2>/dev/null
       /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
     elif [ "$bags_only" == "1" ];then
       # Nowadays we have data bags that are persistent and node-related. Leave
       # them be, and only delete our automatic ones.
       for bag in nagios_users nagios_servers demo;do
-        $knife data bag delete $bag --yes 2>/dev/null
+        $knife data bag $knife_cfg delete $bag --yes 2>/dev/null
       done
     else
-      $knife cookbook bulk delete --purge '.+' --yes 2>/dev/null
+      $knife cookbook $knife_cfg bulk delete --purge '.+' --yes 2>/dev/null
       /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
       /bin/rm -rf $MU_CHEF_CACHE/roles $MU_CHEF_CACHE/environments $MU_CHEF_CACHE/data_bags
-      $knife role bulk delete '.*' --yes 2>/dev/null
-      for env in `$knife environment list | grep -v '_default$'`;do
-        $knife environment delete $env --yes 2>/dev/null
+      $knife role $knife_cfg bulk delete '.*' --yes 2>/dev/null
+      for env in `$knife environment $knife_cfg list | grep -v '_default$'`;do
+        $knife environment $knife_cfg delete $env --yes 2>/dev/null
       done
       for bag in nagios_users nagios_servers demo;do
-        $knife data bag delete $bag --yes 2>/dev/null
+        $knife data bag $knife_cfg delete $bag --yes 2>/dev/null
       done
     fi
   fi
@@ -411,16 +415,16 @@ for repo in $REPOS;do
       set +e
       if [ "$type" == "cookbooks" -o "$type" == "site_cookbooks" ];then
         /bin/rm -rf $MU_CHEF_CACHE/$type/$name
-        $knife cookbook delete $name --yes --all
+        $knife cookbook $knife_cfg delete $name --yes --all
       elif [ "$type" == "roles" -a "$cookbooks_only" == "" ];then
         /bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
-        $knife role delete $name --yes
+        $knife role $knife_cfg delete $name --yes
       elif [ "$type" == "environments" -a "$cookbooks_only" == "" ];then
         /bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
-        $knife environment delete $name --yes
+        $knife environment $knife_cfg delete $name --yes
       elif [ "$type" == "data_bags" -a "$cookbooks_only" == "" ];then
         /bin/rm -rf $MU_CHEF_CACHE/$type/$name
-        $knife data bag delete $name --yes
+        $knife data bag $knife_cfg delete $name --yes
       fi
       set -e
     done
@@ -621,9 +625,9 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
     if [ -f "$bagdir/$admin.json" ];then
       if [ "$bagcreated" == "0" ];then
         bagcreated=1
-        $knife data bag create nagios_users
+        $knife data bag $knife_cfg create nagios_users
       fi
-      $knife data bag from file nagios_users $bagdir/$admin.json
+      $knife data bag $knife_cfg from file nagios_users $bagdir/$admin.json
     fi
     if [ ! -f "$bagdir/$admin.json" ];then
       id="`echo $admin | sed -e 's/@/_/'`"
@@ -657,21 +661,21 @@ if [ "$all" != "1" ];then
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-            $knife data bag create $bag
+            $knife data bag $knife_cfg create $bag
           fi
-          $knife data bag from file $bag $file
+          $knife data bag $knife_cfg from file $bag $file
         fi
       done
     done
   else
     for role in $upload_roles;do
       if [ "$match" == "" -o "$match" == "$role" ];then
-        $knife role from file $MU_CHEF_CACHE/roles/$role.json
+        $knife role $knife_cfg from file $MU_CHEF_CACHE/roles/$role.json
       fi
     done
     for env in $upload_environments;do
       if [ "$match" == "" -o "$match" == "$env" ];then
-        $knife environment from file $MU_CHEF_CACHE/environments/$env.json
+        $knife environment $knife_cfg from file $MU_CHEF_CACHE/environments/$env.json
       fi
     done
     set +e
@@ -682,9 +686,9 @@ if [ "$all" != "1" ];then
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-            $knife data bag create $bag
+            $knife data bag $knife_cfg create $bag
           fi
-          $knife data bag from file $bag $file
+          $knife data bag $knife_cfg from file $bag $file
         fi
       done
     done
@@ -713,9 +717,9 @@ else
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-            $knife data bag create $folder
+            $knife data bag $knife_cfg create $folder
           fi
-          $knife data bag from file $folder $file
+          $knife data bag $knife_cfg from file $folder $file
         fi
       done
     done
@@ -729,7 +733,7 @@ else
     for file in $_files;do
       role="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
       if [ "$match" == "" -o "$match" == "$role" ];then
-        $knife role from file $file
+        $knife role $knife_cfg from file $file
       fi
     done
     
@@ -737,7 +741,7 @@ else
     for file in $_files;do
       env="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
       if [ "$match" == "" -o "$match" == "$env" ];then
-        $knife environment from file $file
+        $knife environment $knife_cfg from file $file
       fi
     done
     
@@ -751,9 +755,9 @@ else
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-            $knife data bag create $folder
+            $knife data bag $knife_cfg create $folder
           fi
-          $knife data bag from file $folder $file
+          $knife data bag $knife_cfg from file $folder $file
         fi
       done
       set -e
