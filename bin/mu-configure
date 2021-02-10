@@ -766,9 +766,9 @@ if !$NOOP
       begin
         Timeout.timeout(2) do
   # TODO iterate across multiple interfaces/access-configs
-          ip = open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
+          ip = URI.open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
           ips << ip if !ip.nil? and ip.size > 0
-          ip = open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
+          ip = URI.open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
           ips << ip if !ip.nil? and ip.size > 0
         end
       rescue OpenURI::HTTPError, Timeout::Error, SocketError => e
@@ -1248,7 +1248,7 @@ if !$NOOP
     pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
     if (cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version) or cur_chef_version.match(/is not installed/)
       puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}' from '#{cur_chef_version}'"
-      chef_installer = open("https://omnitruck.chef.io/install.sh").read
+      chef_installer = URI.open("https://omnitruck.chef.io/install.sh").read
       File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
         f.puts chef_installer
       }
