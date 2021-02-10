@@ -939,7 +939,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 else
                   route['nat_host_name'] = nat['name']
                   route['priority'] = 100
-                  MU::Config.addDependency(vpc, nat['name'], "server", phase: "groom", no_create_wait: true)
+                  MU::Config.addDependency(vpc, nat['name'], "server", their_phase: "groom", my_phase: "groom")
                   vpc["bastion"] = MU::Config::Ref.get(
                     name: nat['name'],
                     cloud: vpc['cloud'],

@@ -1119,7 +1119,7 @@ end
             role['policies'].each { |policy|
               policy['targets'].each { |target|
                 if target['type']
-                  MU::Config.addDependency(role, target['identifier'], target['type'], no_create_wait: true)
+                  MU::Config.addDependency(role, target['identifier'], target['type'], my_phase: "groom")
                 end
               }
             }

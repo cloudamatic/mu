@@ -1381,7 +1381,7 @@ start = Time.now
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
             configurator.insertKitten(role, "roles")
-            MU::Config.addDependency(cluster, cluster["name"]+"pods", "role", phase: "groom")
+            MU::Config.addDependency(cluster, cluster["name"]+"pods", "role", their_phase: "groom")
             if !MU::Master.kubectl
               MU.log "Since I can't find a kubectl executable, you will have to handle all service account, user, and role bindings manually!", MU::WARN
             end
@@ -1530,7 +1530,7 @@ start = Time.now
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
             configurator.insertKitten(role, "roles")
-            MU::Config.addDependency(cluster, cluster["name"]+"controlplane", "role", phase: "groom")
+            MU::Config.addDependency(cluster, cluster["name"]+"controlplane", "role", their_phase: "groom")
           end
 
           ok

@@ -119,7 +119,7 @@ module MU
         if acl_include['sgs']
           acl_include['sgs'].each { |sg_ref|
             if haveLitterMate?(sg_ref, "firewall_rules")
-              MU::Config.addDependency(acl, sg_ref, "firewall_rule", no_create_wait: true)
+              MU::Config.addDependency(acl, sg_ref, "firewall_rule", my_phase: "groom")
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
               if !siblingfw["#MU_VALIDATED"]
 # XXX raise failure somehow

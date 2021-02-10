@@ -614,7 +614,7 @@ MU.log "Azure::Server.find called", MU::NOTICE, details: args
               ok = false
             end
             MU::Config.addDependency(server, server['name']+"vpc", "vpc")
-            MU::Config.addDependency(server, server['name']+"vpc-natstion", "server", phase: "groom")
+            MU::Config.addDependency(server, server['name']+"vpc-natstion", "server", their_phase: "groom")
             server['vpc'] = {
               "name" => server['name']+"vpc",
               "subnet_pref" => "private"

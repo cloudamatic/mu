@@ -563,7 +563,7 @@ module MU
               "name" => vpc["name"],
               "subnet_pref" => "public"
             }
-#            MU::Config.addDependency(vpc, bastion['name'], "server", no_create_wait: true)
+#            MU::Config.addDependency(vpc, bastion['name'], "server", my_phase: "groom")
 #            vpc["bastion"] = MU::Config::Ref.get(
 #              name: bastion['name'],
 #              cloud: vpc['cloud'],
@@ -615,11 +615,11 @@ module MU
                     append_me = { "vpc" => peer["vpc"].dup }
                     append_me['vpc']['name'] = sib['name']
                     append << append_me
-                    MU::Config.addDependency(vpc, sib['name'], "vpc", phase: "groom", no_create_wait: true)
+                    MU::Config.addDependency(vpc, sib['name'], "vpc", their_phase: "create", my_phase: "groom")
                   end
                   delete << peer
                 else
-                  MU::Config.addDependency(vpc, peer['vpc']['name'], "vpc", phase: "groom", no_create_wait: true)
+                  MU::Config.addDependency(vpc, peer['vpc']['name'], "vpc", their_phase: "create", my_phase: "groom")
                 end
                 delete << peer if sib['name'] == vpc['name']
               }

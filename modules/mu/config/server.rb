@@ -650,12 +650,12 @@ module MU
           end
 
           if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"]) and !configurator.nat_routes[server["vpc"]["subnet_name"]].empty?
-            MU::Config.addDependency(server, configurator.nat_routes[server["vpc"]["subnet_name"]], "server", phase: "groom", no_create_wait: true)
+            MU::Config.addDependency(server, configurator.nat_routes[server["vpc"]["subnet_name"]], "server", their_phase: "groom", my_phase: "groom")
           elsif !server["vpc"]["name"].nil?
             siblingvpc = configurator.haveLitterMate?(server["vpc"]["name"], "vpcs")
             if siblingvpc and siblingvpc['bastion'] and
                server['name'] != siblingvpc['bastion']['name']
-              MU::Config.addDependency(server, siblingvpc['bastion']['name'], "server", phase: "groom", no_create_wait: true)
+              MU::Config.addDependency(server, siblingvpc['bastion']['name'], "server", their_phase: "groom", my_phase: "groom")
             end
           end
         end

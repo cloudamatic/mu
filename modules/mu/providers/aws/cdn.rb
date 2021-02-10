@@ -512,7 +512,7 @@ module MU
                 end
                 target_ref = MU::Config::Ref.get(o[sib_type])
                 if target_ref.name
-                  MU::Config.addDependency(cdn, target_ref.name, sib_type, phase: "groom")
+                  MU::Config.addDependency(cdn, target_ref.name, sib_type, their_phase: "groom")
                 end
                 count += 1
               end

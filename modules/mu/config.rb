@@ -437,27 +437,27 @@ module MU
     # @param type [String]
     # @param phase [String]
     # @param no_create_wait [Boolean]
-    def self.addDependency(resource, name, type, phase: "create", no_create_wait: false)
-      if ![nil, "create", "groom"].include?(phase)
-        raise MuError, "Invalid phase '#{phase}' while adding dependency #{type} #{name} to #{resource['name']}"
+    def self.addDependency(resource, name, type, their_phase: "create", my_phase: nil)
+      if ![nil, "create", "groom"].include?(their_phase)
+        raise MuError, "Invalid their_phase '#{their_phase}' while adding dependency #{type} #{name} to #{resource['name']}"
       end
       resource['dependencies'] ||= []
       _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
 
       resource['dependencies'].each { |dep|
         if dep['type'] == cfg_name and dep['name'].to_s == name.to_s
-          dep["no_create_wait"] = no_create_wait
-          dep["phase"] = phase if phase
+          dep["their_phase"] = their_phase if their_phase
+          dep["my_phase"] = my_phase if my_phase
           return
         end
       }
 
       newdep = {
         "type" => cfg_name,
-        "name"  => name.to_s,
-        "no_create_wait" => no_create_wait
+        "name"  => name.to_s
       }
-      newdep["phase"] = phase if phase
+      newdep["their_phase"] = their_phase if their_phase
+      newdep["my_phase"] = my_phase if my_phase
 
       resource['dependencies'] << newdep
 
@@ -746,7 +746,7 @@ module MU
           next if !acl_include["name"] and !acl_include["rule_name"]
           acl_include["name"] ||= acl_include["rule_name"]
           if haveLitterMate?(acl_include["name"], "firewall_rules")
-            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule", no_create_wait: (cfg_name == "vpc"))
+            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule", my_phase: ((cfg_name == "vpc") ? "groom" : "create"))
           elsif acl_include["name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -937,7 +937,6 @@ module MU
               sibling['dependencies'].each { |sib_dep|
                 next if sib_dep['type'] != cfg_name or sib_dep['their_phase'] != "groom"
                 cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
-MU.log "#{cfg_name} #{resource['name']}", MU::NOTICE, details: sip_dep
                 if cousin and cousin['name'] == resource['name']
                   MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['type']} #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
                   ok = false
@@ -1255,7 +1254,7 @@ MU.log "#{cfg_name} #{resource['name']}", MU::NOTICE, details: sip_dep
                     "port" => db["port"],
                     "sgs" => [cfg_name+server['name']]
                   }
-                  MU::Config.addDependency(ruleset, cfg_name+server['name'], "firewall_rule", no_create_wait: true)
+                  MU::Config.addDependency(ruleset, cfg_name+server['name'], "firewall_rule", my_phase: "groom")
                 end
               }
             }

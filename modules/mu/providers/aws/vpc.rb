@@ -1037,7 +1037,7 @@ module MU
                 subnet_routes[table['name']].each { |subnet|
                   nat_routes[subnet] = route['nat_host_name']
                 }
-                MU::Config.addDependency(vpc, route['nat_host_name'], "server", no_create_wait: true)
+                MU::Config.addDependency(vpc, route['nat_host_name'], "server", my_phase: "groom")
               elsif route['gateway'] == '#NAT'
                 vpc['create_nat_gateway'] = true
                 private_rtbs << table['name']

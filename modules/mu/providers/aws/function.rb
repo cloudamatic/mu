@@ -542,7 +542,7 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
               end
 
               if mu_type
-                MU::Config.addDependency(function, t['name'], mu_type, no_create_wait: true)
+                MU::Config.addDependency(function, t['name'], mu_type, my_phase: "groom")
               end
             }
           end

@@ -341,7 +341,7 @@ module MU
               "region" => db['region'],
               "credentials" => db['credentials'],
             }
-            MU::Config.addDependency(replica, db["name"], "database", phase: "groom")
+            MU::Config.addDependency(replica, db["name"], "database", their_phase: "groom")
             read_replicas << replica
           end
         end
@@ -367,7 +367,7 @@ module MU
               "type" => "databases"
             }
             # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
-            MU::Config.addDependency(node, db["name"], "database", phase: "groom")
+            MU::Config.addDependency(node, db["name"], "database", their_phase: "groom")
             cluster_nodes << node
 
            # Alarms are set on each DB cluster node, not on the cluster itself,

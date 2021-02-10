@@ -927,7 +927,7 @@ module MU
               end
             end
             if launch["server"] != nil
-              MU::Config.addDependency(pool, launch["server"], "server", phase: "groom")
+              MU::Config.addDependency(pool, launch["server"], "server", their_phase: "groom")
 # XXX I dunno, maybe toss an error if this isn't done already
 #              servers.each { |server|
 #                if server["name"] == launch["server"]

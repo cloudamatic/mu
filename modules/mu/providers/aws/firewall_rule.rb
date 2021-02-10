@@ -652,7 +652,7 @@ module MU
             if rule['firewall_rules']
               rule['firewall_rules'].each { |sg|
                 if sg['name'] and !sg['deploy_id']
-                  MU::Config.addDependency(acl, sg['name'], "firewall_rule", no_create_wait: true)
+                  MU::Config.addDependency(acl, sg['name'], "firewall_rule", my_phase: "groom")
                 end
               }
             end
@@ -660,7 +660,7 @@ module MU
             if rule['loadbalancers']
               rule['loadbalancers'].each { |lb|
                 if lb['name'] and !lb['deploy_id']
-                  MU::Config.addDependency(acl, lb['name'], "loadbalancer", phase: "groom")
+                  MU::Config.addDependency(acl, lb['name'], "loadbalancer", their_phase: "groom")
                 end
               }
             end
