@@ -632,6 +632,12 @@ bash "add localhost ssh to config" do
   EOH
   action :nothing
 end
+execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
+  umask "0177"
+  not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
+  notifies :run, "bash[add localhost ssh to config]", :immediately
+  notifies :run, "execute[add localhost key to authorized_keys]", :immediately
+end
 execute "add localhost key to authorized_keys" do
   command "cat #{ROOT_SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys"
   only_if {
@@ -649,12 +655,6 @@ execute "add localhost key to authorized_keys" do
     end
     !found
   }
-end
-execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
-  umask "0177"
-  not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
-  notifies :run, "bash[add localhost ssh to config]", :immediately
-  notifies :run, "execute[add localhost key to authorized_keys]", :immediately
 end
 file "/etc/chef/client.pem" do
   action :nothing

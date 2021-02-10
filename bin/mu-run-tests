@@ -175,7 +175,7 @@ commands.keys.each { |cmd|
       results[cmd_thr]["failed"] << "main"
     end
 
-    if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
+    if $opts[:full] and results[cmd_thr]["output"].to_s.match(/deploy - Deployment id: .*? \((.*?)\)/)
       deploy_id = Regexp.last_match[1]
       adoptdir = Dir.mktmpdir(commands[cmd_thr]["file"].gsub(/[^a-z0-9]|yaml$/i, ""))
       if commands[cmd_thr]["types"] and commands[cmd_thr]["types"].size > 0
