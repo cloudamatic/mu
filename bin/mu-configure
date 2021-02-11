@@ -531,8 +531,9 @@ if !$NOOP
     Dir.chdir("/")
     system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     exit 1 if $?.exitstatus != 0
-    system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
   end
+  system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
+  system("cd #{MU_BASE}/lib/modules && umask 0022 && /opt/chef/embedded/bin/bundle install")
 
   KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
@@ -1363,6 +1364,8 @@ ssl_verify_mode :verify_none
     end
     %x{/sbin/service iptables start} if !$INITIALIZE
   end
+
+  Dir.chdir(Dir.home)
 
   if $INITIALIZE and AMROOT
     updateChefRbs
