@@ -597,17 +597,17 @@ end
 file "initial root knife.rb" do
   path "/root/.chef/knife.rb"
   content "
-  node_name 'mu'
-  client_key '#{MU_BASE}/var/users/mu/mu.user.key'
-  validation_client_name 'mu-validator'
-  validation_key '#{MU_BASE}/var/orgs/mu/mu.org.key'
-  chef_server_url 'https://127.0.0.1:7443/organizations/mu'
-  chef_server_root 'https://127.0.0.1:7443/organizations/mu'
-  syntax_check_cache_path  '/root/.chef/syntax_check_cache'
-  cookbook_path [ '/root/.chef/cookbooks', '/root/.chef/site_cookbooks' ]
-  ssl_verify_mode :verify_none
-  knife[:vault_mode] = 'client'
-  knife[:vault_admins] = ['mu']\n"
+node_name 'mu'
+client_key '#{MU_BASE}/var/users/mu/mu.user.key'
+validation_client_name 'mu-validator'
+validation_key '#{MU_BASE}/var/orgs/mu/mu.org.key'
+chef_server_url 'https://127.0.0.1:7443/organizations/mu'
+chef_server_root 'https://127.0.0.1:7443/organizations/mu'
+syntax_check_cache_path  '/root/.chef/syntax_check_cache'
+cookbook_path [ '/root/.chef/cookbooks', '/root/.chef/site_cookbooks' ]
+ssl_verify_mode :verify_none 
+knife[:vault_mode] = 'client'
+knife[:vault_admins] = ['mu']\n"
   only_if { !::File.size?("/root/.chef/knife.rb") }
   notifies :run, "execute[initial Chef artifact upload]", :immediately
 end
@@ -671,12 +671,12 @@ knife_cfg = "-c /root/.chef/knife.rb"
 execute "create MU-MASTER Chef client" do
 # XXX I dislike --ssh-verify-host-key=never intensely, but the CLI-documented 'accept_new' doesn't actually work
   if SSH_USER == "root"
-    command "/opt/chef/bin/knife #{knife_cfg} bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
+    command "/opt/chef/bin/knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
   else
-    command "/opt/chef/bin/knife #{knife_cfg} bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
+    command "/opt/chef/bin/knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
-  only_if "/opt/chef/bin/knife #{knife_cfg} node list'" # don't do crazy stuff just because knife isn't working
-  not_if "/opt/chef/bin/knife #{knife_cfg} node list | grep '^MU-MASTER$'"
+  only_if "/opt/chef/bin/knife node #{knife_cfg} list'" # don't do crazy stuff just because knife isn't working
+  not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
   notifies :delete, "file[/etc/chef/client.rb]", :before
   notifies :delete, "file[/etc/chef/client.pem]", :before
