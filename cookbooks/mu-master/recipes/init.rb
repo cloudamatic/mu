@@ -675,7 +675,7 @@ execute "create MU-MASTER Chef client" do
   else
     command "/opt/chef/bin/knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
-  only_if "/opt/chef/bin/knife node #{knife_cfg} list'" # don't do crazy stuff just because knife isn't working
+  only_if "/opt/chef/bin/knife node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
   not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
   notifies :delete, "file[/etc/chef/client.rb]", :before
