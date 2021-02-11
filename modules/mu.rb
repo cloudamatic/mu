@@ -888,6 +888,8 @@ module MU
   # @param stringify_keys [Boolean]
   # @return [Hash]
   def self.structToHash(struct, stringify_keys: false)
+    return nil if struct.nil?
+
     google_struct = false
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)

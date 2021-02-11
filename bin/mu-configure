@@ -1279,7 +1279,8 @@ if !$NOOP
     require 'mu'
   rescue LoadError, Gem::MissingSpecError
     system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
-    require 'bundler/setup'
+    require 'bundler'
+    Bundler.setup
     require 'mu'
   rescue MU::MuError => e
     puts "Correct the above error before proceeding. To retry, run:\n\n#{$0.bold} #{ARGV.join(" ").bold}"
