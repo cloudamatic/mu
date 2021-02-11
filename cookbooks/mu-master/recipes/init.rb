@@ -662,6 +662,9 @@ end
 file "/etc/chef/validation.pem" do
   action :nothing
 end
+file "/etc/chef/client.rb" do
+  action :nothing
+end
 
 knife_cfg = "-c /root/.chef/knife.rb"
 
@@ -675,6 +678,7 @@ execute "create MU-MASTER Chef client" do
   only_if "/opt/chef/bin/knife #{knife_cfg} node list'" # don't do crazy stuff just because knife isn't working
   not_if "/opt/chef/bin/knife #{knife_cfg} node list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
+  notifies :delete, "file[/etc/chef/client.rb]", :before
   notifies :delete, "file[/etc/chef/client.pem]", :before
   notifies :delete, "file[/etc/chef/validation.pem]", :before
   notifies :start, "service[chef-server]", :before

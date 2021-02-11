@@ -552,12 +552,13 @@ if !$NOOP
   knife[:vault_admins] = ['<%= chefuser %>']"
 
   CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-  validation_client_name 'mu-validator'
-  log_location   STDOUT
-  node_name 'MU-MASTER'
-  verify_api_cert false
-  ssl_verify_mode :verify_none
-  "
+validation_client_name 'mu-validator'
+log_location   STDOUT
+node_name 'MU-MASTER'
+chef_license 'accept'
+verify_api_cert false
+ssl_verify_mode :verify_none
+"
 
   PIVOTAL_TEMPLATE = "node_name 'pivotal'
   chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
@@ -1306,38 +1307,6 @@ if !$NOOP
     system("/bin/hostname #{$MU_CFG['hostname']}")
   end
 
-  # Do some more basic-but-Chef-dependent configuration *before* we meddle with
-  # the Chef Server configuration, which depends on some of this (SSL certs and
-  # local firewall ports).
-  if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
-    MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
-    %x{/sbin/service iptables stop} if $INITIALIZE
-    if File.exists?("/opt/opscode/bin/chef-server-ctl")
-      system("/opt/opscode/bin/chef-server-ctl start")
-    end
-    output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
-    if $?.exitstatus != 0
-      puts output
-      MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
-      %x{/sbin/service iptables start} if !$INITIALIZE
-      exit 1
-    end
-    %x{/sbin/service iptables start} if !$INITIALIZE
-  end
-
-  if $INITIALIZE and AMROOT
-    MU.log "Force open key firewall holes", MU::NOTICE
-    system("chef-client -o 'recipe[mu-master::firewall-holes]'")
-  end
-
-  if AMROOT
-    MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-    if !system("chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
-      MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
-      exit 1
-    end
-  end
-
   def updateChefRbs
     user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
     chefuser = user.gsub(/\./, "")
@@ -1365,7 +1334,42 @@ if !$NOOP
   end
 
 
+  # Do some more basic-but-Chef-dependent configuration *before* we meddle with
+  # the Chef Server configuration, which depends on some of this (SSL certs and
+  # local firewall ports).
+  if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
+    MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
+    %x{/sbin/service iptables stop} if $INITIALIZE
+    if File.exists?("/opt/opscode/bin/chef-server-ctl")
+      system("/opt/opscode/bin/chef-server-ctl start")
+    end
+    output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
+    if $?.exitstatus != 0
+      puts output
+      MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
+      %x{/sbin/service iptables start} if !$INITIALIZE
+      exit 1
+    end
+    %x{/sbin/service iptables start} if !$INITIALIZE
+  end
+
+  if $INITIALIZE and AMROOT
+    updateChefRbs
+    MU.log "Force open key firewall holes", MU::NOTICE
+    system("chef-client -o 'recipe[mu-master::firewall-holes]'")
+  end
+
   if AMROOT
+    MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
+    if !system("chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
+      MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
+      exit 1
+    end
+  end
+
+
+  if AMROOT
+    updateChefRbs
     erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
     updated_server_cfg = erb.result(binding)
     cfgpath = "/etc/opscode/chef-server.rb"
