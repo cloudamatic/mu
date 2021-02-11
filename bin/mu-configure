@@ -535,21 +535,21 @@ if !$NOOP
   end
 
   KNIFE_TEMPLATE = "log_level                :info
-  log_location             STDOUT
-  node_name                '<%= chefuser %>'
-  client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
-  validation_client_name   'mu-validator'
-  validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
-  chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
-  chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
-  syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
-  cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
-  <% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
-  ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
-  ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
-  <% end %>
-  knife[:vault_mode] = 'client'
-  knife[:vault_admins] = ['<%= chefuser %>']"
+log_location             STDOUT
+node_name                '<%= chefuser %>'
+client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
+validation_client_name   'mu-validator'
+validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
+syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
+cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
+<% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
+ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
+ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
+<% end %>
+knife[:vault_mode] = 'client'
+knife[:vault_admins] = ['<%= chefuser %>']"
 
   CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 validation_client_name 'mu-validator'
@@ -560,13 +560,24 @@ verify_api_cert false
 ssl_verify_mode :verify_none
 "
 
+#chef_server_url  "https://127.0.0.1:7443/organizations/mu"
+#validation_client_name "mu-validator"
+#chef_license "accept"
+#log_location   STDOUT
+#node_name "MU-MASTER"
+#verify_api_cert false
+#ssl_verify_mode :verify_none
+#trusted_certs_dir "/etc/chef/trusted_certs"
+#file_cache_path "/var/chef/cache"
+#file_backup_path "/var/chef/backup"
+
   PIVOTAL_TEMPLATE = "node_name 'pivotal'
-  chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
-  chef_server_root 'https://<%= MU.mu_public_addr %>:7443'
-  no_proxy '<%= MU.mu_public_addr %>'
-  client_key '/etc/opscode/pivotal.pem'
-  ssl_verify_mode :verify_none
-  "
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443'
+no_proxy '<%= MU.mu_public_addr %>'
+client_key '/etc/opscode/pivotal.pem'
+ssl_verify_mode :verify_none
+"
 
   $CHANGES = []
 
@@ -1365,6 +1376,10 @@ ssl_verify_mode :verify_none
       MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
       exit 1
     end
+    if !File.size?("#{$MU_CFG['datadir']}/ssl/mommacat.crt")
+      MU.log "I just ran recipe[mu-master::ssl-certs]', but #{$MU_CFG['datadir']}/ssl/mommacat.crt} is still missing. Bailing.", MU::ERR
+      exit 1
+    end
   end
 
 
@@ -1377,7 +1392,7 @@ ssl_verify_mode :verify_none
     File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts updated_server_cfg
     }
-    if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+    if $INITIALIZE or !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
       File.rename(tmpfile, cfgpath)
       # Opscode can't seem to get things right with their postgres socket
       Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exist?("/var/run/postgresql")
@@ -1457,6 +1472,11 @@ ssl_verify_mode :verify_none
       system("/opt/opscode/bin/chef-server-ctl start")
     end
     MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
+  rescue OpenSSL::SSL::SSLError => e
+    if !$INITIALIZE
+      raise e
+    end
+    MU.log "Got SSL error connecting to Chef for vault secrets, this is normal during initial install", MU::NOTICE, details: e.message
   rescue MU::Groomer::MuNoSuchSecret
     data = {
       "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
