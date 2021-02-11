@@ -894,18 +894,24 @@ module MU
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
     rescue NameError
+    rescue TypeError
+      return struct
     end
 
     aws_struct = false
     begin
       aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
     rescue NameError
+    rescue TypeError
+      return struct
     end
 
     azure_struct = false
     begin
       azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)
     rescue NameError
+    rescue TypeError
+      return struct
     end
 
     if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or

@@ -1280,6 +1280,7 @@ if !$NOOP
   rescue LoadError, Gem::MissingSpecError
     system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
     require 'bundler'
+    Dir.chdir(MU_BASE+"/lib/modules")
     Bundler.setup
     require 'mu'
   rescue MU::MuError => e
