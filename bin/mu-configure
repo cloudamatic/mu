@@ -1405,12 +1405,13 @@ ssl_verify_mode :verify_none
       elsif !File.exist?("/tmp/.s.PGSQL.5432") and File.exist?("/var/run/postgresql/.s.PGSQL.5432")
         File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
       end
-      MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+      MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE, details: updated_server_cfg
       # XXX Some undocumented port Chef needs only on startup is being blocked by
       # iptables. Something rabbitmq-related. Dopey workaround.
       %x{/sbin/service iptables stop}
+      system("#{CHEF_CTL} stop")
       system("#{CHEF_CTL} reconfigure")
-      system("#{CHEF_CTL} restart")
+      system("#{CHEF_CTL} start")
       %x{/sbin/service iptables start} if !$INITIALIZE
       updateChefRbs
       $CHANGES << "chefcerts"
