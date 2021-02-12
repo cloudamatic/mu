@@ -28,7 +28,7 @@ require 'erb'
 require 'tmpdir'
 
 CHEF_CLIENT="env -i /opt/chef/bin/chef-client"
-CHEF_CTL="env -i /opt/opscode/bin/chef-server-ctl"
+CHEF_CTL="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin /opt/opscode/bin/chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
 $IN_GEM = false
@@ -1410,7 +1410,9 @@ ssl_verify_mode :verify_none
       # iptables. Something rabbitmq-related. Dopey workaround.
       %x{/sbin/service iptables stop}
       system("#{CHEF_CTL} stop")
-      system("#{CHEF_CTL} reconfigure")
+      MU.retrier(wait: 10, max: 6, loop_if: Proc.new { $?.exitstatus != 0 }, loop_msg: "Trying to get chef-server-ctl reconfigure to work") {
+        system("#{CHEF_CTL} reconfigure")
+      }
       system("#{CHEF_CTL} start")
       %x{/sbin/service iptables start} if !$INITIALIZE
       updateChefRbs
