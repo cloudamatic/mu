@@ -19,7 +19,7 @@ class Chef
           end
 
           begin
-            shell_out_with_timeout!(cmd, env: nil)
+            shell_out(cmd, env: nil)
           rescue StandardError => e
             if cmd.match(/--no-rdoc|--no-ri/)
               cmd.gsub!(/--no-rdoc --no-ri/, "--no-document")

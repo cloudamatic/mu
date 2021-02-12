@@ -27,6 +27,9 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
+CHEF_CLIENT="env -i /opt/chef/bin/chef-client"
+GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
 $IN_GEM = false
 gemwhich = %x{gem which mu 2>&1}.chomp
 gemwhich = nil if $?.exitstatus != 0
@@ -44,9 +47,6 @@ if !mypath.match(/^\/opt\/mu/)
     }
   end
 end
-
-
-GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
 if !$NOOP
   $IN_AWS = false
@@ -1370,12 +1370,12 @@ ssl_verify_mode :verify_none
   if $INITIALIZE and AMROOT
     updateChefRbs
     MU.log "Force open key firewall holes", MU::NOTICE
-    system("/opt/chef/bin/chef-client -o 'recipe[mu-master::firewall-holes]'")
+    system("#{CHEF_CLIENT} -o 'recipe[mu-master::firewall-holes]'")
   end
 
   if AMROOT
     MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-    if !system("/opt/chef/bin/chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
+    if !system("#{CHEF_CLIENT} -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
       MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
       exit 1
     end
@@ -1495,7 +1495,7 @@ ssl_verify_mode :verify_none
   end
   if $INITIALIZE or $CHANGES.include?("vault")
     MU.log "Setting up Hashicorp Vault", MU::NOTICE
-    system("/opt/chef/bin/chef-client -o 'recipe[mu-master::vault]'")
+    system("#{CHEF_CLIENT} -o 'recipe[mu-master::vault]'")
   end
 
   set389DSCreds
@@ -1508,10 +1508,10 @@ ssl_verify_mode :verify_none
     if $INITIALIZE or $CHANGES.include?("389ds")
       File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exist?("/root/389ds.tmp/389-directory-setup.inf")
       MU.log "Configuring 389 Directory Services", MU::NOTICE
-      system("/opt/chef/bin/chef-client -o 'recipe[mu-master::389ds]'")
+      system("#{CHEF_CLIENT} -o 'recipe[mu-master::389ds]'")
       exit 1 if $? != 0
       MU::Master::LDAP.initLocalLDAP
-      system("/opt/chef/bin/chef-client -o 'recipe[mu-master::sssd]'")
+      system("#{CHEF_CLIENT} -o 'recipe[mu-master::sssd]'")
       exit 1 if $? != 0
     end
   end
@@ -1547,7 +1547,7 @@ ssl_verify_mode :verify_none
 
 
   MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-  system("/opt/chef/bin/chef-client -o '#{run_list.join(",")}'")
+  system("#{CHEF_CLIENT} -o '#{run_list.join(",")}'")
 
 
   if !File.exist?("#{MU_BASE}/var/users/mu/email") or !File.exist?("#{MU_BASE}/var/users/mu/realname")
