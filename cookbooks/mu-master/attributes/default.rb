@@ -22,6 +22,9 @@ default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
 default["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
+default['apache']['user'] = "apache"
+default['apache']['group'] = "apache"
+
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
@@ -47,6 +50,7 @@ default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
 default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
 default['nagios']['server_role'] = "mu-master"
+default['nagios']['group'] = "nagios"
 default['nagios']['server']['install_method'] = 'source'
 default['nagios']['multi_environment_monitoring'] = true
 default['nagios']['users_databag'] = "nagios_users"

@@ -27,7 +27,7 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
-CHEF_CLIENT="env -i /opt/chef/bin/chef-client"
+CHEF_CLIENT="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin /opt/chef/bin/chef-client"
 CHEF_CTL="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin /opt/opscode/bin/chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
