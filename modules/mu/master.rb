@@ -924,7 +924,7 @@ module MU
     # Retrieve the UUID of a block device, if available
     # @param dev [String]
     def self.diskUUID(dev)
-      realdevice = if MU::Cloud::Google.hosted?
+      realdev = if MU::Cloud::Google.hosted?
         "/dev/disk/by-id/google-"+dev.gsub(/.*?\/([^\/]+)$/, '\1')
       elsif MU::Cloud::AWS.hosted?
         MU::Cloud::AWS.realDevicePath(dev)
