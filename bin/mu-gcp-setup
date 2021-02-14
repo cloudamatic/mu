@@ -44,6 +44,7 @@ Usage:
   opt :logs, "Ensure the presence of an Cloud Storage bucket prefixed with 'Mu_Logs' for use with CloudTrails, syslog, etc.", :require => false, :default => false, :type => :boolean
 #  opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
   opt :uploadlogs, "Push today's log files to the Cloud Storage bucket created by the -l option.", :require => false, :default => false, :type => :boolean
+  opt :optdisk, "Create a block volume for /opt and slide our installation onto it", :require => false, :default => false, :type => :boolean
 end
 
 if MU::Cloud::Google.hosted? and !$MU_CFG['google']
@@ -135,6 +136,38 @@ if $opts[:sg]
 
 end
 
+if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
+  myname = MU::Cloud::Google.getGoogleMetaData("instance/name")
+  wd = Dir.getwd
+  Dir.chdir("/")
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl stop")
+  end
+  if !File.exists?("/sbin/mkfs.xfs")
+    system("/usr/bin/yum -y install xfsprogs")
+  end
+  MU::Master.disk(myname+"-mu-opt", "/opt_tmp", 30)
+  uuid = MU::Master.diskUUID(myname+"-mu-opt")
+  if !uuid or uuid.empty?
+    MU.log "Failed to retrieve UUID of block device #{myname}-mu-opt", MU::ERR, details: MU::Cloud::AWS.realDevicePath(myname+"-mu-opt")
+    exit 1
+  end
+  MU.log "Moving contents of /opt to /opt_tmp", MU::NOTICE
+  system("/bin/mv /opt/* /opt_tmp/")
+  exit 1 if $?.exitstatus != 0
+  MU.log "Remounting /opt_tmp /opt", MU::NOTICE
+  system("/bin/umount /opt_tmp")
+  exit 1 if $?.exitstatus != 0
+  system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
+  system("/bin/mount -a")
+  exit 1 if $?.exitstatus != 0
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl start")
+  end
+  Dir.chdir(wd)
+end
+
+
 $bucketname = MU::Cloud::Google.adminBucketName
 
 if $opts[:logs]
@@ -204,8 +237,10 @@ if $opts[:logs]
         raise MuError, e.inspect
       end
     end
-# XXX stop doing this per-bucket, chowderhead
-    MU::Master.disk("/dev/xvdl", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
+
+    myname = MU::Cloud::Google.getGoogleMetaData("instance/name")
+    MU::Master.disk("/dev/"+myname+"-mu-logs", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
+
   }
 
 end

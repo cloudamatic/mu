@@ -528,7 +528,7 @@ if !$NOOP
   end
 
 
-  if $IN_AWS and AMROOT and !$IN_GEM
+  if ($IN_AWS or $IN_GOOGLE) and AMROOT and !$IN_GEM
     Dir.chdir("/")
     system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     exit 1 if $?.exitstatus != 0
