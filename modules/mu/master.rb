@@ -925,7 +925,7 @@ module MU
     # @param dev [String]
     def self.diskUUID(dev)
       realdevice = if MU::Cloud::Google.hosted?
-        "/dev/disk/by-id/google-"+device.gsub(/.*?\/([^\/]+)$/, '\1')
+        "/dev/disk/by-id/google-"+dev.gsub(/.*?\/([^\/]+)$/, '\1')
       elsif MU::Cloud::AWS.hosted?
         MU::Cloud::AWS.realDevicePath(dev)
       else
