@@ -64,7 +64,12 @@ module MU
     # code for each of its supported resource type classes.
     failed = []
     MU::Cloud.supportedClouds.each { |cloud|
-      require "mu/providers/#{cloud.downcase}"
+      begin
+        require "mu/providers/#{cloud.downcase}"
+      rescue LoadError, Gem::MissingSpecError => e
+        MU.log "Error loading #{cloud} library, calls into this provider will fail", MU::ERR, details: e.message
+        next
+      end
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
       @@generic_class_methods_toplevel.each { |method|
         if !cloudclass.respond_to?(method)
