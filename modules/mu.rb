@@ -16,8 +16,6 @@ require 'bundler/setup'
 require 'yaml'
 require 'socket'
 require 'net/http'
-gem 'aws-sdk-core'
-autoload :Aws, "aws-sdk-core"
 gem 'nokogiri'
 autoload :Nokogiri, "nokogiri"
 gem 'simple-password-gen'
