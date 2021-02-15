@@ -528,9 +528,15 @@ if !$NOOP
   end
 
 
-  if ($IN_AWS or $IN_GOOGLE) and AMROOT and !$IN_GEM
+  if AMROOT and !$IN_GEM
     Dir.chdir("/")
-    system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+    if $IN_AWS
+      system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+    elsif $IN_GOOGLE
+      system("#{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
+    elsif $IN_AZURE
+#      system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
+    end
     exit 1 if $?.exitstatus != 0
   end
   system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
