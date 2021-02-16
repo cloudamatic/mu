@@ -472,7 +472,11 @@ gemfile_dir = if RUNNING_STANDALONE and !File.readlines("/etc/mtab").grep(/\s\/o
           break
         end
       }
-      # XXX need GCP and Azure checks, somehow
+      dmiout = %x{PATH=/sbin:/usr/sbin:/bin:/usr/bin dmidecode}
+      if dmiout.match(/Google/)
+        exclude_gems.delete("google-api-client")
+      end
+      # XXX Azure check
 
       f = File.open("#{TMPDIR}/cloud-mu.gemspec", "w")
       File.read("#{MU_BASE}/lib/cloud-mu.gemspec").each_line { |l|
