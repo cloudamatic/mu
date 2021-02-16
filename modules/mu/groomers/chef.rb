@@ -70,8 +70,8 @@ module MU
             # XXX kludge to get at knife-windows when it's installed from 
             # a git repo and bundler sticks it somewhere in a corner
             $LOAD_PATH.each { |path|
-              if path.match(/\/gems\/aws\-sdk\-core\-\d+\.\d+\.\d+\/lib$/)
-                addpath = path.sub(/\/gems\/aws\-sdk\-core\-\d+\.\d+\.\d+\/lib$/, "")+"/bundler/gems"
+              if path.match(/\/gems\/chef\-\d+\.\d+\.\d+\/lib$/)
+                addpath = path.sub(/\/gems\/chef\-\d+\.\d+\.\d+\/lib$/, "")+"/bundler/gems"
                 Dir.glob(addpath+"/knife-windows-*").each { |version|
                   $LOAD_PATH << version+"/lib"
                 }
