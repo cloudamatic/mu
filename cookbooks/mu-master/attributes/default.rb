@@ -98,7 +98,7 @@ case node['platform']
     ssh_user = "ec2-user"
 end
 
-default['application_attributes']['sshd_allow_groups'] = "#{ssh_user} mu-users"
+default['application_attributes']['sshd_allow_groups'] = "#{ssh_user} mu-users adm google-sudoers"
 default['application_attributes']['sshd_allow_password_auth'] = true
 default['update_nagios_only'] = false
 default['apache']['listen'] = [80, 443, 8443]
