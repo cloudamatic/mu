@@ -16,7 +16,6 @@ require "net/http"
 require 'open-uri'
 require 'timeout'
 require 'inifile'
-gem 'aws-sdk-core'
 autoload :Aws, "aws-sdk-core"
 
 
@@ -66,6 +65,7 @@ module MU
       # @param name [String]: The name of the mu.yaml AWS credential set to use. If not specified, will use the default credentials, and set the global Aws.config credentials to those.
       # @return [Aws::Credentials]
       def self.loadCredentials(name = nil)
+        gem 'aws-sdk-core'
         @@creds_loaded ||= {}
 
         if name.nil?
@@ -213,6 +213,7 @@ end
       # @param othertags [Array<Hash>]: Miscellaneous custom tags, in Basket of Kittens style
       # @return [void]
       def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil, optional: true, nametag: nil, othertags: nil)
+        require "aws-sdk-ec2"
         tags = []
         MU::MommaCat.listStandardTags.each_pair { |name, value|
           tags << {key: name, value: value} if !value.nil?
@@ -270,7 +271,7 @@ end
         @@myVPCObj
       end
 
-      # If we've configured AWS as a provider, or are simply hosted in AWS, 
+      # If we've configured AWS as a provider, or are simply hosted in AWS,
       # decide what our default region is.
       def self.myRegion(credentials = nil)
         return @@myRegion_var if @@myRegion_var
@@ -392,6 +393,7 @@ end
       # @param deploy_id [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
       def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
+        require "aws-sdk-s3"
         name ||= deploy.deploy_id+"-secret"
         begin
           MU.log "Writing #{name} to S3 bucket #{adminBucketName(credentials)}"
@@ -410,35 +412,35 @@ end
       def self.cloudtrailBucketPolicy(credentials = nil)
         cfg = credConfig(credentials)
         policy_json = '{
-      		"Version": "2012-10-17",
-      		"Statement": [
-      			{
-      				"Sid": "AWSCloudTrailAclCheck20131101",
-      				"Effect": "Allow",
+                "Version": "2012-10-17",
+                "Statement": [
+                        {
+                                "Sid": "AWSCloudTrailAclCheck20131101",
+                                "Effect": "Allow",
               "Principal": {
                 "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
                 "Service": "cloudtrail.amazonaws.com"
               },
-      				"Action": "s3:GetBucketAcl",
-      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'"
-      			},
-      			{
-      				"Sid": "AWSCloudTrailWrite20131101",
-      				"Effect": "Allow",
+                                "Action": "s3:GetBucketAcl",
+                                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'"
+                        },
+                        {
+                                "Sid": "AWSCloudTrailWrite20131101",
+                                "Effect": "Allow",
               "Principal": {
                 "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::'+credToAcct(credentials)+':root",
                 "Service": "cloudtrail.amazonaws.com"
               },
-      				"Action": "s3:PutObject",
-      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/AWSLogs/'+credToAcct(credentials)+'/*",
-      				"Condition": {
-      					"StringEquals": {
-      						"s3:x-amz-acl": "bucket-owner-full-control"
-      					}
-      				}
-      			}
-      		]
-      	}'
+                                "Action": "s3:PutObject",
+                                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/AWSLogs/'+credToAcct(credentials)+'/*",
+                                "Condition": {
+                                        "StringEquals": {
+                                                "s3:x-amz-acl": "bucket-owner-full-control"
+                                        }
+                                }
+                        }
+                ]
+        }'
         ERB.new(policy_json).result
       end
 
@@ -622,17 +624,18 @@ end
         end
 
         $MU_CFG['aws'].keys
-      end 
+      end
 
       # Resolve the administrative S3 bucket for a given credential set, or
       # return a default.
       # @param credentials [String]
       # @return [String]
       def self.adminBucketName(credentials = nil)
+        require "aws-sdk-s3"
         cfg = credConfig(credentials)
         return nil if !cfg
         if !cfg['log_bucket_name']
-          cfg['log_bucket_name'] = $MU_CFG['hostname'] 
+          cfg['log_bucket_name'] = $MU_CFG['hostname']
           MU.log "No AWS log bucket defined for credentials #{credentials}, attempting to use default of #{cfg['log_bucket_name']}", MU::WARN
         end
         resp = MU::Cloud::AWS.s3(credentials: credentials).list_buckets
@@ -666,7 +669,7 @@ end
 
       # Return the $MU_CFG data associated with a particular profile/name/set of
       # credentials. If no account name is specified, will return one flagged as
-      # default. Returns nil if AWS is not configured. Throws an exception if 
+      # default. Returns nil if AWS is not configured. Throws an exception if
       # an account name is specified which does not exist.
       # @param name [String]: The name of the key under 'aws' in mu.yaml to return
       # @return [Hash,nil]
@@ -751,6 +754,7 @@ end
       # XXX this needs to be "myAccountNumber" or somesuch
       # XXX and maybe do the IAM thing for arbitrary, non-resident accounts
       def self.account_number
+        require "aws-sdk-ec2"
         return nil if credConfig.nil?
         return @@my_acct_num if @@my_acct_num
         loadCredentials
@@ -808,7 +812,7 @@ end
           @@regions.keys.uniq
         end
 
-# XXX GovCloud doesn't show up if you query a commercial endpoint... that's 
+# XXX GovCloud doesn't show up if you query a commercial endpoint... that's
 # *probably* ok for most purposes? We can't call listAZs on it from out here
 # apparently, so getting around it is nontrivial
 #        if !@@regions.has_key?("us-gov-west-1")
@@ -833,6 +837,7 @@ end
       # @param public_key [String]: The public key
       # @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
       def self.createEc2SSHKey(keyname, public_key, credentials: nil)
+        require "aws-sdk-ec2"
         # We replicate this key in all regions
         if !MU::Cloud::CloudFormation.emitCloudFormation
           MU::Cloud::AWS.listRegions.each { |region|
@@ -916,6 +921,7 @@ end
       # @param id [String]: The ARN of a known certificate. We just validate that it exists. This is ignored if a name parameter is supplied.
       # @return [String]: The ARN of a matching certificate that is known to exist. If it is an ACM certificate, we also know that it is not expired.
       def self.findSSLCertificate(name: nil, id: nil, region: myRegion, credentials: nil, raise_on_missing: true)
+        require "aws-sdk-iam"
         if (name.nil? or name.empty?) and (id.nil? or id.empty?)
           raise MuError, "Can't call findSSLCertificate without specifying either a name or an id"
         end
@@ -950,7 +956,7 @@ end
               return nil
             end
           elsif matches.size > 1
-            raise MuError, "Multiple certificates named #{name} were found in #{region}. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
+            raise MuError, "Multiple certificates named #{name} were found in #{region}. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."
           end
         end
 
@@ -1012,7 +1018,7 @@ end
       # Given a {MU::Config::Ref} block for an IAM or ACM SSL certificate,
       # look up and validate the specified certificate. This is intended to be
       # invoked from resource implementations' +validateConfig+ methods.
-      # @param certblock [Hash,MU::Config::Ref]: 
+      # @param certblock [Hash,MU::Config::Ref]:
       # @param region [String]: Default region to use when looking up the certificate, if its configuration block does not specify any
       # @param credentials [String]: Default credentials to use when looking up the certificate, if its configuration block does not specify any
       # @return [Boolean]
@@ -1180,7 +1186,7 @@ end
         @@elasticache_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "ElastiCache", region: region, credentials: credentials)
         @@elasticache_api[credentials][region]
       end
-      
+
       # Amazon's SNS API
       def self.sns(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1188,7 +1194,7 @@ end
         @@sns_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "SNS", region: region, credentials: credentials)
         @@sns_api[credentials][region]
       end
-      
+
       # Amazon's SQS API
       def self.sqs(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1220,7 +1226,7 @@ end
         @@apig_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "APIGateway", region: region, credentials: credentials)
         @@apig_api[credentials][region]
       end
-      
+
       # Amazon's Cloudwatch Events API
       def self.cloudwatch_events(region = MU.cureRegion)
         region ||= myRegion
@@ -1358,6 +1364,7 @@ end
           tag_value=MU.deploy_id,
           region: MU.curRegion,
           credentials: nil)
+        require "aws-sdk-ec2"
         attempts = 0
 
         return nil if resource.nil?
@@ -1398,6 +1405,7 @@ end
       # Mu Master, if we're in AWS.
       # @return [void]
       def self.openFirewallForClients
+        require "aws-sdk-ec2"
         MU::Cloud.resourceClass("AWS", :FirewallRule)
         begin
           if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
