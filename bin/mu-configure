@@ -1375,7 +1375,6 @@ ssl_verify_mode :verify_none
   Dir.chdir(Dir.home)
 
   if $INITIALIZE and AMROOT
-    updateChefRbs
     MU.log "Force open key firewall holes", MU::NOTICE
     system("#{CHEF_CLIENT} -o 'recipe[mu-master::firewall-holes]'")
   end
@@ -1394,7 +1393,7 @@ ssl_verify_mode :verify_none
 
 
   if AMROOT
-    updateChefRbs
+    updateChefRbs if !$INITIALIZE
     erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
     updated_server_cfg = erb.result(binding)
     cfgpath = "/etc/opscode/chef-server.rb"
