@@ -1585,7 +1585,7 @@ ssl_verify_mode :verify_none
   end
 
   MU.log "Regenerating documentation in /var/www/html/docs"
-  %x{#{MU_BASE}/lib/bin/mu-gen-docs}
+  %x{env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin #{MU_BASE}/lib/bin/mu-gen-docs}
 
   if $INITIALIZE
     MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
