@@ -43,6 +43,7 @@ GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(
 #end
 
 def _system(cmd)
+  puts cmd.bold
   system(CLEAN_ENV, cmd)
 end
 
