@@ -29,7 +29,7 @@ require 'tmpdir'
 
 #CLEAN_ENV="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"
 CLEAN_ENV={"PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"}
-CLEAN_ENV_STR = CLEAN_ENV.map { |k|
+CLEAN_ENV_STR = CLEAN_ENV.keys.map { |k|
   k+"=\""+CLEAN_ENV[k]+"\""
 }.join(" ")
 CHEF_CLIENT="/opt/chef/bin/chef-client"
