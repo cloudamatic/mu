@@ -866,8 +866,13 @@ end
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
         return {} if credConfig.nil?
+        return {} if region.nil?
 
         human_region = @@regionLookup[region]
+        if human_region.nil?
+          MU.log "Failed to map a Pricing API region name from #{region}", MU::ERR
+          return {}
+        end
 
         @@instance_types ||= {}
         @@instance_types[region] ||= {}
