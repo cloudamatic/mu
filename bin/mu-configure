@@ -27,9 +27,11 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
-CHEF_CLIENT="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin /opt/chef/bin/chef-client"
-CHEF_CTL="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin /opt/opscode/bin/chef-server-ctl"
+CLEAN_ENV="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"
+CHEF_CLIENT="#{CLEAN_ENV} /opt/chef/bin/chef-client"
+CHEF_CTL="#{CLEAN_ENV} /opt/opscode/bin/chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
 
 $IN_GEM = false
 gemwhich = %x{gem which mu 2>&1}.chomp
@@ -531,9 +533,9 @@ if !$NOOP
   if AMROOT and !$IN_GEM
     Dir.chdir("/")
     if $IN_AWS
-      system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+      system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     elsif $IN_GOOGLE
-      system("#{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
+      system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
     elsif $IN_AZURE
 #      system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
     end
@@ -1431,14 +1433,14 @@ ssl_verify_mode :verify_none
   end
 
   if $IN_AWS and AMROOT# and $IN_GEM
-    system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
+    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
   # XXX --ip? Do we really care?
   end
   if $IN_GOOGLE and AMROOT
-    system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
+    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
   end
   if $IN_AZURE and AMROOT
-    system("#{MU_BASE}/lib/bin/mu-azure-setup --sg")
+    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-azure-setup --sg")
   end
 
   if $INITIALIZE or $CHANGES.include?("chefcerts")
@@ -1584,11 +1586,11 @@ ssl_verify_mode :verify_none
   end
 
   MU.log "Regenerating documentation in /var/www/html/docs"
-  %x{env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin #{MU_BASE}/lib/bin/mu-gen-docs}
+  %x{#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gen-docs}
 
   if $INITIALIZE
     MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
-    puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
+    puts %x{#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
     MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
     puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
   end
