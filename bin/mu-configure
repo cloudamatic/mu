@@ -27,11 +27,24 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
-CLEAN_ENV="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"
-CHEF_CLIENT="#{CLEAN_ENV} /opt/chef/bin/chef-client"
-CHEF_CTL="#{CLEAN_ENV} /opt/opscode/bin/chef-server-ctl"
+#CLEAN_ENV="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"
+CLEAN_ENV={"PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"}
+CLEAN_ENV_STR = CLEAN_ENV.map { |k|
+  k+"=\""+CLEAN_ENV[k]+"\""
+}.join(" ")
+CHEF_CLIENT="/opt/chef/bin/chef-client"
+CHEF_CTL="/opt/opscode/bin/chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
+
+#def _x(cmd)
+#  puts "#{CLEAN_ENV} #{cmd}".bold
+#  %x{#{CLEAN_ENV} #{cmd}}
+#end
+
+def _system(cmd)
+  system(CLEAN_ENV, cmd)
+end
 
 $IN_GEM = false
 gemwhich = %x{gem which mu 2>&1}.chomp
@@ -533,16 +546,16 @@ if !$NOOP
   if AMROOT and !$IN_GEM
     Dir.chdir("/")
     if $IN_AWS
-      system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+      _system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     elsif $IN_GOOGLE
-      system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
+      _system("#{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
     elsif $IN_AZURE
-#      system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
+#      _system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
     end
     exit 1 if $?.exitstatus != 0
   end
-  system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
-  system("cd #{MU_BASE}/lib/modules && umask 0022 && /opt/chef/embedded/bin/bundle install")
+  _system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
+  _system("cd #{MU_BASE}/lib/modules && umask 0022 && /opt/chef/embedded/bin/bundle install")
 
   KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
@@ -664,7 +677,7 @@ ssl_verify_mode :verify_none
         keynamestr = repo.gsub(/[^a-z0-9\-]/i, "-") + Process.pid.to_s
         keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
         puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
-        system("cat > #{keypath}")
+        _system("cat > #{keypath}")
         File.chmod(0600, keypath)
         puts "Key saved to "+keypath.bold
         deletekey = true
@@ -1274,9 +1287,9 @@ ssl_verify_mode :verify_none
       File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
         f.puts chef_installer
       }
-      system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
+      _system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
       # This will go fix gems, permissions, etc
-      system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+      _system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
     end
   end
 
@@ -1300,7 +1313,7 @@ ssl_verify_mode :verify_none
   begin
     require 'mu'
   rescue LoadError, Gem::MissingSpecError
-    system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
+    _system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
     require 'bundler'
     pwd = Dir.pwd
     Dir.chdir(MU_BASE+"/lib/modules")
@@ -1325,7 +1338,7 @@ ssl_verify_mode :verify_none
   end
 
   if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
-    system("/bin/hostname #{$MU_CFG['hostname']}")
+    _system("/bin/hostname #{$MU_CFG['hostname']}")
   end
 
   def updateChefRbs
@@ -1362,7 +1375,7 @@ ssl_verify_mode :verify_none
     MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
     %x{/sbin/service iptables stop} if $INITIALIZE
     if File.exists?("#{CHEF_CTL}")
-      system("#{CHEF_CTL} start")
+      _system("#{CHEF_CTL} start")
     end
     output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
     if $?.exitstatus != 0
@@ -1378,12 +1391,12 @@ ssl_verify_mode :verify_none
 
   if $INITIALIZE and AMROOT
     MU.log "Force open key firewall holes", MU::NOTICE
-    system("#{CHEF_CLIENT} -o 'recipe[mu-master::firewall-holes]'")
+    _system("#{CHEF_CLIENT} -o 'recipe[mu-master::firewall-holes]'")
   end
 
   if AMROOT
     MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-    if !system("#{CHEF_CLIENT} -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
+    if !_system("#{CHEF_CLIENT} -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
       MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
       exit 1
     end
@@ -1416,11 +1429,11 @@ ssl_verify_mode :verify_none
       # XXX Some undocumented port Chef needs only on startup is being blocked by
       # iptables. Something rabbitmq-related. Dopey workaround.
       %x{/sbin/service iptables stop}
-      system("#{CHEF_CTL} stop")
+      _system("#{CHEF_CTL} stop")
       MU.retrier(wait: 10, max: 6, loop_if: Proc.new { $?.exitstatus != 0 }, loop_msg: "Trying to get chef-server-ctl reconfigure to work") {
-        system("#{CHEF_CTL} reconfigure")
+        _system("#{CHEF_CTL} reconfigure")
       }
-      system("#{CHEF_CTL} start")
+      _system("#{CHEF_CTL} start")
       %x{/sbin/service iptables start} if !$INITIALIZE
       updateChefRbs
       $CHANGES << "chefcerts"
@@ -1433,20 +1446,20 @@ ssl_verify_mode :verify_none
   end
 
   if $IN_AWS and AMROOT# and $IN_GEM
-    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
+    _system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
   # XXX --ip? Do we really care?
   end
   if $IN_GOOGLE and AMROOT
-    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
+    _system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
   end
   if $IN_AZURE and AMROOT
-    system("#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-azure-setup --sg")
+    _system("#{MU_BASE}/lib/bin/mu-azure-setup --sg")
   end
 
   if $INITIALIZE or $CHANGES.include?("chefcerts")
-    system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
+    _system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
     if AMROOT
-      system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+      _system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
     end
   end
 
@@ -1471,7 +1484,7 @@ ssl_verify_mode :verify_none
       if !Dir.exist?(repodir)
         MU.log "Cloning #{repo} into #{repodir}", MU::NOTICE
         Dir.chdir(MU.dataDir)
-        system("/usr/bin/git clone #{repo}")
+        _system("/usr/bin/git clone #{repo}")
         $CHANGES << "chefartifacts"
       end
     }
@@ -1483,7 +1496,7 @@ ssl_verify_mode :verify_none
 
   begin
     if File.exists?("#{CHEF_CTL}")
-      system("#{CHEF_CTL} start")
+      _system("#{CHEF_CTL} start")
     end
     MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
   rescue OpenSSL::SSL::SSLError => e
@@ -1506,7 +1519,7 @@ ssl_verify_mode :verify_none
   end
   if $INITIALIZE or $CHANGES.include?("vault")
     MU.log "Setting up Hashicorp Vault", MU::NOTICE
-    system("#{CHEF_CLIENT} -o 'recipe[mu-master::vault]'")
+    _system("#{CHEF_CLIENT} -o 'recipe[mu-master::vault]'")
   end
 
   set389DSCreds
@@ -1519,10 +1532,10 @@ ssl_verify_mode :verify_none
     if $INITIALIZE or $CHANGES.include?("389ds")
       File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exist?("/root/389ds.tmp/389-directory-setup.inf")
       MU.log "Configuring 389 Directory Services", MU::NOTICE
-      system("#{CHEF_CLIENT} -o 'recipe[mu-master::389ds]'")
+      _system("#{CHEF_CLIENT} -o 'recipe[mu-master::389ds]'")
       exit 1 if $? != 0
       MU::Master::LDAP.initLocalLDAP
-      system("#{CHEF_CLIENT} -o 'recipe[mu-master::sssd]'")
+      _system("#{CHEF_CLIENT} -o 'recipe[mu-master::sssd]'")
       exit 1 if $? != 0
     end
   end
@@ -1553,12 +1566,12 @@ ssl_verify_mode :verify_none
     MU::Config.emitSchemaAsRuby
     MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
     File.umask(0022)
-    system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+    _system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
   end
 
 
   MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-  system("#{CHEF_CLIENT} -o '#{run_list.join(",")}'")
+  _system("#{CHEF_CLIENT} -o '#{run_list.join(",")}'")
 
 
   if !File.exist?("#{MU_BASE}/var/users/mu/email") or !File.exist?("#{MU_BASE}/var/users/mu/realname")
@@ -1586,11 +1599,11 @@ ssl_verify_mode :verify_none
   end
 
   MU.log "Regenerating documentation in /var/www/html/docs"
-  %x{#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-gen-docs}
+  %x{#{CLEAN_ENV_STR} #{MU_BASE}/lib/bin/mu-gen-docs}
 
   if $INITIALIZE
     MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
-    puts %x{#{CLEAN_ENV} #{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
+    puts %x{#{CLEAN_ENV_STR} #{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
     MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
     puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
   end
