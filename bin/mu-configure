@@ -27,8 +27,11 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
-#CLEAN_ENV="env -i PATH=/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"
-CLEAN_ENV={"PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin"}
+HOMEDIR = Etc.getpwuid(Process.uid).dir
+CLEAN_ENV={
+  "PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin:/usr/local/ruby-current/bin",
+  "HOME" => HOMEDIR
+}
 CLEAN_ENV_STR = CLEAN_ENV.keys.map { |k|
   k+"=\""+CLEAN_ENV[k]+"\""
 }.join(" ")
@@ -1567,7 +1570,7 @@ ssl_verify_mode :verify_none
     MU::Config.emitSchemaAsRuby
     MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
     File.umask(0022)
-    _system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+    _system("cd #{MU.myRoot} && umask 0022 && /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
   end
 
 

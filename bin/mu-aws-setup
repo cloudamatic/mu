@@ -24,6 +24,8 @@ require 'securerandom'
 
 require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
 
+pp ENV
+
 require 'rubygems'
 require 'bundler/setup'
 require 'json'
