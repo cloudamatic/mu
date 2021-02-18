@@ -292,7 +292,9 @@ end
           $MU_CFG['aws'].each_pair { |credset, cfg|
             next if credentials and credset != credentials
             next if !cfg['region']
-            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'], credentials: credset)
+            MU.log "AWS.myRegion: validating credset #{credset}", loglevel, details: cfg
+            MU.log "AWS.myRegion: validation response", loglevel, details: validate_region(cfg['region'], credentials: credset)
+            if (cfg['default'] or !@@myRegion_var or $MU_CFG['aws'].size == 1) and validate_region(cfg['region'], credentials: credset)
               MU.log "AWS.myRegion: liking this set", loglevel, details: cfg
               @@myRegion_var = cfg['region']
               break if cfg['default'] or credentials
@@ -314,6 +316,10 @@ end
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
           MU.log "AWS.myRegion: using hosted", loglevel, details: az_str
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
+        end
+
+        if credConfig and credConfig["region"]
+          @@myRegion_var ||= credConfig["region"]
         end
 
         @@myRegion_var
