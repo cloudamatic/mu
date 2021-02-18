@@ -71,7 +71,9 @@ preferred_ip = MU.mu_public_ip
 
 if $opts[:ephemeral] and !MU::Cloud::AWS.isGovCloud?
   instancetypes = MU::Cloud::AWS.listInstanceTypes
-  if instancetypes[MU.myRegion][instance.instance_type]["storage"] == "EBS only"
+  if !instancetypes or !instancetypes[MU.myRegion] or !instancetypes[MU.myRegion][instance.instance_type]
+    MU.log "Failed to load instance type mappings from Pricing API for #{instance.instance_type} in #{MU.myRegion}", MU::ERR
+  elsif instancetypes[MU.myRegion][instance.instance_type]["storage"] == "EBS only"
     MU.log "#{instance.instance_type} instance types do not have ephemeral volumes, skipping ephemeral device setup", MU::NOTICE
   else
 #    instance.block_device_mappings.each { |dev|
