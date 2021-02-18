@@ -281,8 +281,9 @@ end
         end
 
         MU.log "AWS.myRegion: credConfig", loglevel, details: credConfig
-        MU.log "AWS.myRegion: hosted?", loglevel, details: hosted?
+        MU.log "AWS.myRegion: hosted?", loglevel, details: hosted?.to_s
         MU.log "AWS.myRegion: ENV['EC2_REGION']", loglevel, details: ENV['EC2_REGION']
+        MU.log "AWS.myRegion: $MU_CFG['aws']", loglevel, details: $MU_CFG['aws']
         if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
           MU.log "AWS.myRegion: nothing of use set, returning", loglevel
           return nil
@@ -290,9 +291,10 @@ end
 
         if $MU_CFG and $MU_CFG['aws']
           $MU_CFG['aws'].each_pair { |credset, cfg|
+            MU.log "AWS.myRegion: #{credset} != #{credentials} ?", loglevel, details: cfg
             next if credentials and credset != credentials
-            next if !cfg['region']
             MU.log "AWS.myRegion: validating credset #{credset}", loglevel, details: cfg
+            next if !cfg['region']
             MU.log "AWS.myRegion: validation response", loglevel, details: validate_region(cfg['region'], credentials: credset)
             if (cfg['default'] or !@@myRegion_var or $MU_CFG['aws'].size == 1) and validate_region(cfg['region'], credentials: credset)
               MU.log "AWS.myRegion: liking this set", loglevel, details: cfg
