@@ -273,10 +273,18 @@ end
 
       # If we've configured AWS as a provider, or are simply hosted in AWS,
       # decide what our default region is.
-      def self.myRegion(credentials = nil)
-        return @@myRegion_var if @@myRegion_var
+      def self.myRegion(credentials = nil, debug: false)
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
+        if @@myRegion_var
+          MU.log "AWS.myRegion: returning #{@@myRegion_var} from cache", loglevel
+          return @@myRegion_var
+        end
 
+        MU.log "AWS.myRegion: credConfig", loglevel, details: credConfig
+        MU.log "AWS.myRegion: hosted?", loglevel, details: hosted?
+        MU.log "AWS.myRegion: ENV['EC2_REGION']", loglevel, details: ENV['EC2_REGION']
         if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
+          MU.log "AWS.myRegion: nothing of use set, returning", loglevel
           return nil
         end
 
@@ -285,6 +293,7 @@ end
             next if credentials and credset != credentials
             next if !cfg['region']
             if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'], credentials: credset)
+              MU.log "AWS.myRegion: liking this set", loglevel, details: cfg
               @@myRegion_var = cfg['region']
               break if cfg['default'] or credentials
             end
@@ -296,12 +305,14 @@ end
                (Aws.config['access_key'] and Aws.config['access_secret'])
               )
           # Make sure this string is valid by way of the API
+          MU.log "AWS.myRegion: using ENV", loglevel, details: ENV
           @@myRegion_var = ENV['EC2_REGION']
         end
 
         if hosted? and !@@myRegion_var
           # hacky, but useful in a pinch (and if we're hosted in AWS)
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
+          MU.log "AWS.myRegion: using hosted", loglevel, details: az_str
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
         end
 
@@ -866,6 +877,9 @@ end
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
         return {} if credConfig.nil?
+        if region.nil?
+          region = myRegion(debug: true)
+        end
         return {} if region.nil?
 
         human_region = @@regionLookup[region]
