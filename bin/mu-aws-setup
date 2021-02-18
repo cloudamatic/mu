@@ -24,8 +24,6 @@ require 'securerandom'
 
 require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
 
-pp ENV
-
 require 'rubygems'
 require 'bundler/setup'
 require 'json'
@@ -65,7 +63,6 @@ if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
 end
 
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
-MU::Cloud::AWS.myRegion(debug: true)
 
 resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first

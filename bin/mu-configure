@@ -27,6 +27,7 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
+AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 CLEAN_ENV={
   "PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin:/usr/local/ruby-current/bin",
@@ -474,8 +475,6 @@ def importCurrentValues
 end
 
 if !$NOOP
-  AMROOT = Process.uid == 0
-  HOMEDIR = Etc.getpwuid(Process.uid).dir
 
   $opts = Optimist::options do
     banner <<-EOS
