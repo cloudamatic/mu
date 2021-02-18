@@ -63,6 +63,7 @@ if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
 end
 
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
+MU::Cloud::AWS.myRegion(debug: true)
 
 resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first
@@ -71,9 +72,9 @@ preferred_ip = MU.mu_public_ip
 
 if $opts[:ephemeral] and !MU::Cloud::AWS.isGovCloud?
   instancetypes = MU::Cloud::AWS.listInstanceTypes
-  if !instancetypes or !instancetypes[MU.myRegion] or !instancetypes[MU.myRegion][instance.instance_type]
-    MU.log "Failed to load instance type mappings from Pricing API for #{instance.instance_type} in #{MU.myRegion}", MU::ERR
-  elsif instancetypes[MU.myRegion][instance.instance_type]["storage"] == "EBS only"
+  if !instancetypes or !instancetypes[MU::Cloud::AWS.myRegion] or !instancetypes[MU::Cloud::AWS.myRegion][instance.instance_type]
+    MU.log "Failed to load instance type mappings from Pricing API for #{instance.instance_type} in #{MU::Cloud::AWS.myRegion}", MU::ERR
+  elsif instancetypes[MU::Cloud::AWS.myRegion][instance.instance_type]["storage"] == "EBS only"
     MU.log "#{instance.instance_type} instance types do not have ephemeral volumes, skipping ephemeral device setup", MU::NOTICE
   else
 #    instance.block_device_mappings.each { |dev|
@@ -104,7 +105,7 @@ if $opts[:sg]
   admin_sg = nil
   if instance.security_groups.size > 0
     instance.security_groups.each { |sg|
-      found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: sg.group_id)
+      found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU::Cloud::AWS.myRegion, dummy_ok: true, cloud_id: sg.group_id)
       if found.size > 0 and
          !found.first.cloud_desc.group_name.match(/^Mu Client Rules for /)
         admin_sg = found.first
@@ -121,7 +122,7 @@ if $opts[:sg]
          !ranges.include?(range.cidr_ip) and rule.to_port != 80 and
          !(rule.to_port == 22 and range.cidr_ip == "#{preferred_ip}/32")
         MU.log "Revoking old Mu Master service access rule for #{range.cidr_ip} port #{rule.to_port.to_s}", MU::NOTICE
-        MU::Cloud::AWS.ec2(region: MU.myRegion, credentials: admin_sg.credentials).revoke_security_group_ingress(
+        MU::Cloud::AWS.ec2(region: MU::Cloud::AWS.myRegion, credentials: admin_sg.credentials).revoke_security_group_ingress(
           group_id: admin_sg.cloud_desc.group_id,
           ip_permissions: [
             {
@@ -176,7 +177,7 @@ if $opts[:sg]
     cfg = {
       "name" => "Mu Master",
       "cloud" => "AWS",
-      "region" => MU.myRegion,
+      "region" => MU::Cloud::AWS.myRegion,
       "rules" => rules
     }
 
@@ -427,7 +428,7 @@ if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
       params = {
           :name => "platform-mu",
           :vpc => {
-              :vpc_region => MU.myRegion,
+              :vpc_region => MU::Cloud::AWS.myRegion,
               :vpc_id => instance.vpc_id
           },
           :hosted_zone_config => {
@@ -450,7 +451,7 @@ if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
         MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
             hosted_zone_id: ext_zone.id,
             vpc: {
-                vpc_region: MU.myRegion,
+                vpc_region: MU::Cloud::AWS.myRegion,
                 vpc_id: instance.vpc_id
             }
         )
