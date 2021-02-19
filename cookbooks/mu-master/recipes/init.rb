@@ -476,7 +476,10 @@ gemfile_dir = if RUNNING_STANDALONE and !File.readlines("/etc/mtab").grep(/\s\/o
       if dmiout.match(/Google/)
         exclude_gems.delete("google-api-client")
       end
-      # XXX Azure check
+
+      if File.exists?("/var/log/waagent.log") and File.read("/var/log/waagent.log") =~ /added Azure fabric/
+        exclude_gems.delete("azure_sdk")
+      end
 
       f = File.open("#{TMPDIR}/cloud-mu.gemspec", "w")
       File.read("#{MU_BASE}/lib/cloud-mu.gemspec").each_line { |l|
