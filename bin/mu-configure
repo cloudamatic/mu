@@ -553,7 +553,7 @@ if !$NOOP
     elsif $IN_GOOGLE
       _system("#{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
     elsif $IN_AZURE
-#      _system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
+      _system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
     end
     exit 1 if $?.exitstatus != 0
   end
