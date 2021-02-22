@@ -364,6 +364,12 @@ end
             }
           end
 
+
+          # The API is filled with lies
+          @subnets.reject! { |s|
+            !MU::Cloud::Google.listRegions(credentials: @credentials).include?(s.az)
+          }
+
           return @subnets
         end
 
@@ -1187,6 +1193,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/notFound: /)
                 MU.log "Failed to fetch cloud description for Google subnet #{@cloud_id}", MU::WARN, details: { "project" => @parent.habitat_id, "region" => @az, "name" => @cloud_id }
+                return nil
+              elsif e.message.match(/Unknown region\. /)
+                MU.log "Google subnet #{@cloud_id} seems like it should live in #{@az}, but that's not a valid region", MU::WARN, details: { "project" => @parent.habitat_id, "region" => @az, "name" => @cloud_id }
                 return nil
               else
                 raise e

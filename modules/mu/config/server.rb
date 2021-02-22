@@ -386,8 +386,7 @@ module MU
           },
           "associate_public_ip" => {
               "type" => "boolean",
-              "default" => false,
-              "description" => "Associate public IP address?"
+              "description" => "Whether to associate a public IP address with this server. Default behavior is to align with resident VPC/subnet, which to say +true+ if the subnet is publicly routable, +false+ if not. For non-VPC instances (AWS Classic), we default to +true+."
           },
           "userdata_script" => userdata_primitive,
           "windows_admin_username" => {
@@ -649,6 +648,11 @@ module MU
             server["vpc"]["subnet_pref"] = "public"
           end
 
+          if server["associate_public_ip"].nil?
+            server["associate_public_ip"] = server["vpc"]["subnet_pref"] == "public" ? true : false
+
+          end
+
           if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"]) and !configurator.nat_routes[server["vpc"]["subnet_name"]].empty?
             MU::Config.addDependency(server, configurator.nat_routes[server["vpc"]["subnet_name"]], "server", their_phase: "groom", my_phase: "groom")
           elsif !server["vpc"]["name"].nil?
@@ -658,6 +662,8 @@ module MU
               MU::Config.addDependency(server, siblingvpc['bastion']['name'], "server", their_phase: "groom", my_phase: "groom")
             end
           end
+        else
+          server["associate_public_ip"] ||= false
         end
 
         ok

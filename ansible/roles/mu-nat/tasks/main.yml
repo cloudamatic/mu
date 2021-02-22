@@ -9,6 +9,9 @@
     name: iptables-services
     state: present
 
+- name: modprobe br_netfilter
+  command: /sbin/modprobe br_netfilter
+
 - name: Enable ip_forward
   sysctl:
     name: net.ipv4.ip_forward

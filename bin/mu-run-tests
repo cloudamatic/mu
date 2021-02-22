@@ -37,13 +37,23 @@ Usage:
   opt :max_retries, "Number of times to retry failed tests in --dryrun mode.", :require => false, :default => 2, :type => :integer
   opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
   opt :verbose, "Show more information while running", :require => false, :default => false
+  opt :clouds, "Select a subset of support cloud providers on which to test", :required => false, :type => :strings, :default => MU::Cloud.availableClouds.reject { |c| c == "CloudFormation" }
 end
 
 only = ARGV
 
 files = Dir.glob("*.yaml", base: dir)
 files.concat(Dir.glob("*.yml", base: dir))
-baseclouds = MU::Cloud.availableClouds.reject { |c| c == "CloudFormation" }
+valid_clouds = MU::Cloud.availableClouds.reject { |c| c == "CloudFormation" }
+baseclouds = []
+$opts[:clouds].each { |cloud|
+  if !valid_clouds.include?(cloud)
+    MU.log "'#{cloud}' isn't one of my available cloud providers", MU::ERR, details: valid_clouds
+  else
+    baseclouds << cloud
+  end
+}
+
 
 commands = {}
 failures = []
@@ -96,7 +106,7 @@ files.each { |f|
         conf_engine = MU::Config.new(f, cloud: cloud)
       rescue StandardError => e
         MU.log e.message+" parsing "+f+" with cloud "+cloud, MU::WARN, details: e.backtrace
-        failures << f+" ("+commands[cmd]["cloud"]+")"
+        failures << f+" ["+commands[cmd]["cloud"]+"] - "+e.class.name+" - "+e.message
         next 
       end
       parsed = MU::Config.stripConfig(conf_engine.config)
@@ -227,6 +237,6 @@ results.keys.sort { |a, b|
 }
 
 if failures.size > 0
-  puts "\n#{failures.size.to_s.bold} failure#{failures.size == 1 ? "" : "s"} in "+failures.uniq.map { |f| f.light_red }.join(", ")
+  puts "\n#{failures.size.to_s.bold} failure#{failures.size == 1 ? "" : "s"} in:\n"+failures.uniq.map { |f| f.light_red }.join("\n")
   exit 1
 end

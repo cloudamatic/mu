@@ -472,7 +472,7 @@ gemfile_dir = if RUNNING_STANDALONE and !File.readlines("/etc/mtab").grep(/\s\/o
           break
         end
       }
-      dmiout = %x{PATH=/sbin:/usr/sbin:/bin:/usr/bin dmidecode}
+      dmiout = shell_out!(%Q{PATH=/sbin:/usr/sbin:/bin:/usr/bin dmidecode})
       if dmiout.match(/Google/)
         exclude_gems.delete("google-api-client")
       end
@@ -660,7 +660,7 @@ execute "add localhost key to authorized_keys" do
         end
       }
     end
-    !found
+    !found # ~FC005
   }
 end
 file "/etc/chef/client.pem" do

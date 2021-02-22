@@ -493,7 +493,15 @@ module MU
         }
         MU.retrier([Aws::EC2::Errors::ServiceError], max: 30, wait: 40, loop_if: loop_if) { |retries, _wait|
           if cloud_desc and cloud_desc.state.name == "terminated"
-            raise MuError, "#{@cloud_id} appears to have been terminated mid-bootstrap!"
+            logs = if !@config['basis'].nil?
+              pool = @deploy.findLitterMate(type: "server_pools", name: @config["name"])
+              if pool
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_scaling_activities(auto_scaling_group_name: pool.cloud_id).activities
+              else
+                nil
+              end
+            end
+            raise MuError.new, "#{@cloud_id} appears to have been terminated mid-bootstrap!", details: logs
           end
           if retries % 3 == 0
             MU.log "Waiting for EC2 instance #{@mu_name} (#{@cloud_id}) to be ready...", MU::NOTICE
