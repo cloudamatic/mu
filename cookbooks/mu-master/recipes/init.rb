@@ -660,10 +660,11 @@ execute "add localhost key to authorized_keys" do
         end
       }
     end
-    !found # ~FC005
+    !found
   }
 end
-file "/etc/chef/client.pem" do
+# XXX foodcritic says this is a repeat declaration, but it's... not
+file "/etc/chef/client.pem" do # ~FC005
   action :nothing
 end
 file "/etc/chef/validation.pem" do
