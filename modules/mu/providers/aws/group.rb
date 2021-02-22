@@ -292,7 +292,7 @@ module MU
           if resp and resp.policy_names and resp.policy_names.size > 0
             resp.policy_names.each { |pol_name|
               pol = MU::Cloud::AWS.iam(credentials: @credentials).get_group_policy(group_name: @cloud_id, policy_name: pol_name)
-              doc = JSON.parse(URI.decode(pol.policy_document))
+              doc = JSON.parse(CGI.unescape(pol.policy_document))
               bok["inline_policies"] = MU::Cloud.resourceClass("AWS", "Role").doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
             }
           end

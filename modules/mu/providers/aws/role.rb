@@ -166,7 +166,7 @@ module MU
                 version_id: desc.policy.default_version_id
               )
 
-              ext = JSON.parse(URI.decode(version.policy_version.document))
+              ext = JSON.parse(CGI.unescape(version.policy_version.document))
               if ext != policy.values.first
                 # Special exception- we don't want to overwrite extra rules
                 # in MuSecrets policies, because our siblings might have 
@@ -328,7 +328,7 @@ end
                 version_id: p.default_version_id
               ).policy_version
 
-              doc = JSON.parse URI.decode_www_form_component old.document
+              doc = JSON.parse CGI.unescape_www_form_component old.document
               need_update = false
 
               doc["Statement"].each { |s|
@@ -616,7 +616,7 @@ end
                     policy_name: pol.policy_name
                   )
                   if resp and resp.policy_document
-                    JSON.parse(URI.decode(resp.policy_document))
+                    JSON.parse(CGI.unescape(resp.policy_document))
                   end
                 rescue ::Aws::IAM::Errors::NoSuchEntity, ::Aws::IAM::Errors::ValidationError
                   resp = MU::Cloud::AWS.iam(credentials: @credentials).get_policy(
@@ -626,7 +626,7 @@ end
                     policy_arn: pol.arn,
                     version_id: resp.policy.default_version_id
                   )
-                  JSON.parse(URI.decode(version.policy_version.document))
+                  JSON.parse(CGI.unescape(version.policy_version.document))
                 end
                 bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
               end
@@ -642,7 +642,7 @@ end
           bok["strip_path"] = true if desc.path == "/"
 
           if desc.assume_role_policy_document
-            assume_doc = JSON.parse(URI.decode(desc.assume_role_policy_document))
+            assume_doc = JSON.parse(CGI.unescape(desc.assume_role_policy_document))
             assume_doc["Statement"].each { |s|
               bok["can_assume"] ||= []
               method = if s["Action"] == "sts:AssumeRoleWithWebIdentity"

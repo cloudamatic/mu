@@ -304,7 +304,7 @@ module MU
                     role_name: baserole.role_name,
                     policy_name: name
                 )
-                policies[name] = URI.decode(resp.policy_document)
+                policies[name] = CGI.unescape(resp.policy_document)
               }
             }
           end

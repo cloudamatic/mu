@@ -106,7 +106,7 @@ files.each { |f|
         conf_engine = MU::Config.new(f, cloud: cloud)
       rescue StandardError => e
         MU.log e.message+" parsing "+f+" with cloud "+cloud, MU::WARN, details: e.backtrace
-        failures << f+" ["+commands[cmd]["cloud"]+"] - "+e.class.name+" - "+e.message
+        failures << f+" ["+commands[cmd]["cloud"]+"] - "+e.class.name+"\n\t"+e.message.gsub(/\n/, "\t\n")
         next 
       end
       parsed = MU::Config.stripConfig(conf_engine.config)
