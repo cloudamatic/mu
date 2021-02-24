@@ -328,7 +328,7 @@ end
                 version_id: p.default_version_id
               ).policy_version
 
-              doc = JSON.parse CGI.unescape_www_form_component old.document
+              doc = JSON.parse URI.decode_www_form_component old.document
               need_update = false
 
               doc["Statement"].each { |s|
