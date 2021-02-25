@@ -565,12 +565,12 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         return @@metadata if svc == "instance" and @@metadata
         base_url = "http://169.254.169.254/metadata/#{svc}"
         args["api-version"] = api_version
-        arg_str = args.keys.map { |k| k.to_s+"="+args[k].to_s }.join("&")
+        arg_str = args.keys.sort.map { |k| k.to_s+"="+CGI.escape(args[k].to_s) }.join("&")
 
         begin
           Timeout.timeout(2) do
-            resp = JSON.parse(URI.open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
-            MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", loglevel, details: resp
+            resp = JSON.parse(URI.open("#{base_url}?#{arg_str}","Metadata"=>"true").read)
+            MU.log "curl -H Metadata:true "+"#{base_url}?#{arg_str}", loglevel, details: resp
             if svc != "instance"
               return resp
             else
@@ -597,9 +597,9 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         cfg = credConfig(credentials)
 
         if cfg and MU::Cloud::Azure.hosted?
-          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" })
           if !token
-            MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+            MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
             raise MuError, "Failed to get machine oauth token"
           end
           machine = MU::Cloud::Azure.get_metadata
