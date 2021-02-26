@@ -47,12 +47,12 @@ Usage:
   opt :optdisk, "Create a block volume for /opt and slide our installation onto it", :require => false, :default => false, :type => :boolean
 end
 
-if MU::Cloud::Azure.hosted? and !$MU_CFG['google']
+if MU::Cloud::Azure.hosted? and !$MU_CFG['azure']
   new_cfg = $MU_CFG.dup
   cfg_blob = MU::Cloud::Azure.hosted_config
   if cfg_blob
     cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
-    new_cfg["google"] = { "default" => cfg_blob }
+    new_cfg["azure"] = { "default" => cfg_blob }
     MU.log "Adding auto-detected Azure stanza to #{cfgPath}", MU::NOTICE
     if new_cfg != $MU_CFG or !cfgExists?
       MU.log "Generating #{cfgPath}"
