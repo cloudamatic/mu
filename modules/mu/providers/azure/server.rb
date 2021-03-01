@@ -220,7 +220,7 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
-MU.log "Azure::Server.find called", MU::NOTICE, details: args
+
           # told one, we may have to search all the ones we can see.
           resource_groups = if args[:resource_group]
             [args[:resource_group]]
@@ -421,12 +421,70 @@ MU.log "Azure::Server.find called", MU::NOTICE, details: args
           @deploy.fetchSecret(@mu_name, "windows_admin_password")
         end
 
-        # Add a volume to this instance
+        # Add a volume to this instance and return the descriptor for the attachment
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
-        def addVolume(dev, size, type: "pd-standard", delete_on_termination: false)
+        # @return [Azure::Compute::Mgmt::V2020_06_01::Models::DataDisk]
+        def addVolume(dev, size, type: "Standard_LRS")
+          disk_desc = nil
+
+          find_disk = Proc.new {
+            ext_disks = MU::Cloud::Azure.compute(credentials: @credentials).disks.list
+            ext_disks.each { |d|
+              if d.location == @region and d.name == dev
+                disk_desc = d
+                break
+              end
+            }
+          }
+
+          attachment = nil
+          find_attachment = Proc.new {
+            cloud_desc.storage_profile.data_disks.each { |a|
+              if a.managed_disk and a.name == dev
+                attachment = a
+                break
+              end
+            }
+          }
+
+          find_disk.call()
+          if !disk_desc
+            MU.log "Creating #{size.to_s}gb disk #{dev}"
+            disk_sku_obj = MU::Cloud::Azure.compute(:DiskSku).new
+            disk_sku_obj.name = type
+            disk_createdata_obj = MU::Cloud::Azure.compute(:CreationData).new
+            disk_createdata_obj.create_option = "Empty"
+            disk_obj = MU::Cloud::Azure.compute(:Disk).new
+            disk_obj.sku = disk_sku_obj
+            disk_obj.creation_data = disk_createdata_obj
+            disk_obj.disk_size_gb = size
+            disk_obj.location = @region
+            disk_obj.managed_by = cloud_desc.id
+            disk_obj.os_type = windows? ? "Windows" : "Linux"
+            disk_desc = MU::Cloud::Azure.compute(credentials: @credentials).disks.create_or_update(@resource_group, dev, disk_obj)
+          end
+
+          find_attachment.call()
+          if !attachment
+            MU.log "Attaching disk #{dev} to #{@cloud_id}"
+            vm_obj = cloud_desc(use_cache: false).dup
+            attached = vm_obj.storage_profile.data_disks
+            mgd_disk = MU::Cloud::Azure.compute(:ManagedDiskParameters).new
+            mgd_disk.storage_account_type = type
+            mgd_disk.id = disk_desc.id
+            new_attach = MU::Cloud::Azure.compute(:DataDisk).new
+            new_attach.name = dev
+            new_attach.lun = next_lun(vm_obj.storage_profile.data_disks)
+            new_attach.create_option = "Attach"
+            new_attach.managed_disk = mgd_disk
+            vm_obj.storage_profile.data_disks << new_attach
+            MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @cloud_id, vm_obj)
+            find_attachment.call()
+          end
+
+          [attachment, cloud_desc.storage_profile.data_disks.size]
         end
 
         # Determine whether the node in question exists at the Cloud provider
@@ -701,6 +759,18 @@ MU.log "Azure::Server.find called", MU::NOTICE, details: args
 
         private
 
+        def next_lun(ext_disks = cloud_desc(use_cache: false).storage_profile.data_disks)
+          ext_disks ||= []
+          used_luns = ext_disks.map { |d| d.lun } # XXX ...probably
+          lun = 0
+          if used_luns.include?(0)
+            begin
+              lun += 1
+            end while used_luns.include?(lun)
+          end
+          lun
+        end
+
         def create_update
           ipcfg = MU::Cloud::Azure.network(:NetworkInterfaceIPConfiguration).new
           ipcfg.name = @mu_name
@@ -868,7 +938,7 @@ if !@cloud_id
 # XXX actually guard this correctly
           MU.log "Creating VM #{@mu_name}", details: vm_obj
           begin
-          vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
+            vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)
           rescue ::MU::Cloud::Azure::APIError => e
             if e.message.match(/InvalidParameter: /)

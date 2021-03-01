@@ -61,14 +61,17 @@ module MU
       def self.resourceInitHook(cloudobj, deploy)
         class << self
           attr_reader :resource_group
+          attr_reader :region
         end
         return if !cloudobj
+
+        region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
+        cloudobj.instance_variable_set(:@region, region)
 
         rg = if !deploy
           return if !hosted?
           MU.myInstanceId.resource_group
         else
-          region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
           deploy.deploy_id+"-"+region.upcase
         end
         
@@ -144,7 +147,6 @@ module MU
           @name
         end
       end
-
 
 # UTILITY METHODS
       # Determine whether we (the Mu master, presumably) are hosted in Azure.

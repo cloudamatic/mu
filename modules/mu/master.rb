@@ -229,6 +229,15 @@ module MU
               kitten_cfg: { 'project' => MU::Cloud::Google.myProject, 'availability_zone' => MU.myAZ }
             )
             dummy_svr.addVolume(device, size) # This will tag itself sensibly
+          elsif MU::Cloud::Azure.hosted?
+            dummy_svr = MU::Cloud::Azure::Server.new(
+              mu_name: "MU-MASTER",
+              cloud_id: MU.myInstanceId,
+              kitten_cfg: {}
+            )
+            disk_desc, sib_count = dummy_svr.addVolume(device, size) # This will tag itself sensibly
+            realdevice = lunToDevice(disk_desc.lun, sib_count, disk_desc.disk_size_gb)
+            alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
           else
             raise MuError, "Not in a familiar cloud, so I don't know how to create volumes for myself"
           end
@@ -290,6 +299,51 @@ module MU
       end
 
     end
+
+    # Kludge to guess what actual OS-level device is being referred to by
+    # the given SCSI LUN, a feat which Azure makes unreasonably difficult for
+    # its managed disks. We assume that sda and sr* will never be the right
+    # answer. This only works local to the VM in question, and assumes we're
+    # on Linux and have the +lsscsi+ package installed.
+    # @param lun [Integer]: The LUN of the disk we're looking for
+    # @param size [Integer]: The approximate size (gb) of the disk we're looking for
+    # @param count [Integer]: The number of devices we should expect to find on the same host id, including the one we're looking for
+    def self.lunToDevice(lun = 0, count = nil, size = nil)
+      host_luns = {}
+      sizes = {}
+      %x{/bin/lsscsi -s}.each_line { |l|
+        scsi_addr, type, _vendor, _type2, version, device, size = l.split(/\s{2,}/)
+        next if type != "disk" or device == "/dev/sda"
+        host, channel, target, lun_id = scsi_addr.gsub(/[\[\]]/, '').split(/:/)
+        host_luns[host] ||= {}
+        host_luns[host][lun_id.to_i] = device
+        sizes[device] = size.gsub(/[a-z]/i, '').to_f
+      }
+
+      candidates = []
+      host_luns.each_pair { |host, devices|
+        next if count and devices.size != count
+        devices.each_pair { |lun_id, device|
+          candidates << device if lun == lun_id
+        }
+      }
+      return candidates.first if candidates.size == 1
+
+      if size
+        new_candidates = []
+        candidates.each { |device|
+          if sizes[device] == size
+            new_candidates << device
+          end
+        }
+        return new_candidates.first if new_candidates.size == 1
+      end
+
+      MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}", MU::WARN, details: candidates
+
+      nil
+    end
+
 
     # Retrieve a secret stored by #storeScratchPadSecret, then delete it.
     # @param itemname [String]: The identifier of the scratchpad secret.
