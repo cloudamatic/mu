@@ -562,9 +562,9 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 
       # Fetch (ALL) Azure instance metadata
       # @return [Hash, nil]
-      def self.get_metadata(svc = "instance", api_version = "2017-08-01", args: {}, debug: false)
+      def self.get_metadata(svc = "instance", api_version = "2020-09-01", args: {}, debug: false, use_cache: true)
         loglevel = debug ? MU::NOTICE : MU::DEBUG
-        return @@metadata if svc == "instance" and @@metadata
+        return @@metadata if svc == "instance" and @@metadata and use_cache
         base_url = "http://169.254.169.254/metadata/#{svc}"
         args["api-version"] = api_version
         arg_str = args.keys.sort.map { |k| k.to_s+"="+CGI.escape(args[k].to_s) }.join("&")

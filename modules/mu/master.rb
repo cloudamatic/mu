@@ -285,6 +285,7 @@ module MU
           %x{/sbin/mkfs.xfs "#{alias_device}"}
           %x{/usr/sbin/xfs_admin -L "#{path.gsub(/[^0-9a-z_\-]/i, "_")}" "#{alias_device}"}
         end
+
         Dir.mkdir(path, 0700) if !Dir.exist?(path) # XXX recursive
         %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
         if $?.exitstatus != 0
@@ -311,6 +312,7 @@ module MU
     def self.lunToDevice(lun = 0, count = nil, size = nil)
       host_luns = {}
       sizes = {}
+      lun = lun.to_i # sometimes we get strings
       %x{/bin/lsscsi -s}.each_line { |l|
         scsi_addr, type, _vendor, _type2, version, device, size = l.split(/\s{2,}/)
         next if type != "disk" or device == "/dev/sda"
@@ -339,7 +341,7 @@ module MU
         return new_candidates.first if new_candidates.size == 1
       end
 
-      MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}", MU::WARN, details: candidates
+      MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}#{count ? ", with #{count.to_s} disks on host": ""}#{size ? ", approximately #{size.to_s}gb" : ""}", MU::WARN, details: host_luns
 
       nil
     end

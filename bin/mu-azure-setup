@@ -247,35 +247,46 @@ if $opts[:logs]
 end
 
 if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
-  puts "PLACEHOLDER"
-#  myname = MU::Cloud::Google.getGoogleMetaData("instance/name")
-#  wd = Dir.getwd
-#  Dir.chdir("/")
-#  if File.exists?("/opt/opscode/bin/chef-server-ctl")
-#    system("/opt/opscode/bin/chef-server-ctl stop")
-#  end
-#  if !File.exists?("/sbin/mkfs.xfs")
-#    system("/usr/bin/yum -y install xfsprogs")
-#  end
-#  MU::Master.disk(myname+"-mu-opt", "/opt_tmp", 30)
-#  uuid = MU::Master.diskUUID(myname+"-mu-opt")
-#  if !uuid or uuid.empty?
-#    MU.log "Failed to retrieve UUID of block device #{myname}-mu-opt", MU::ERR, details: MU::Cloud::AWS.realDevicePath(myname+"-mu-opt")
-#    exit 1
-#  end
-#  MU.log "Moving contents of /opt to /opt_tmp", MU::NOTICE
-#  system("/bin/mv /opt/* /opt_tmp/")
-#  exit 1 if $?.exitstatus != 0
-#  MU.log "Remounting /opt_tmp /opt", MU::NOTICE
-#  system("/bin/umount /opt_tmp")
-#  exit 1 if $?.exitstatus != 0
-#  system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
-#  system("/bin/mount -a")
-#  exit 1 if $?.exitstatus != 0
-#  if File.exists?("/opt/opscode/bin/chef-server-ctl")
-#    system("/opt/opscode/bin/chef-server-ctl start")
-#  end
-#  Dir.chdir(wd)
+  myname = MU::Cloud::Azure.get_metadata()["compute"]["name"]
+
+  wd = Dir.getwd
+  Dir.chdir("/")
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl stop")
+  end
+  if !File.exists?("/sbin/mkfs.xfs")
+    system("/usr/bin/yum -y install xfsprogs")
+  end
+  MU::Master.disk(myname+"-mu-opt", "/opt_tmp", 30)
+  disklist = MU::Cloud::Azure.get_metadata(use_cache: false)["compute"]["storageProfile"]["dataDisks"]
+  realdevice = nil
+  disklist.each { |d|
+    if d["name"] == myname+"-mu-opt"
+      realdevice = MU::Master.lunToDevice(d["lun"], disklist.size, d["diskSizeGB"])
+    end
+  }
+  if !realdevice
+    MU.log "Failed to find #{myname}-mu-opt in storage block list", MU::ERR, details: disklist
+    exit 1
+  end
+  uuid = MU::Master.diskUUID(realdevice)
+  if !uuid or uuid.empty?
+    MU.log "Failed to retrieve UUID of block device #{myname}-mu-opt (#{realdevice})", MU::ERR, details: MU::Cloud::AWS.realDevicePath(realdevice)
+    exit 1
+  end
+  MU.log "Moving contents of /opt to /opt_tmp", MU::NOTICE
+  system("/bin/mv /opt/* /opt_tmp/")
+  exit 1 if $?.exitstatus != 0
+  MU.log "Remounting /opt_tmp /opt", MU::NOTICE
+  system("/bin/umount /opt_tmp")
+  exit 1 if $?.exitstatus != 0
+  system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
+  system("/bin/mount -a")
+  exit 1 if $?.exitstatus != 0
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl start")
+  end
+  Dir.chdir(wd)
 end
 
 
