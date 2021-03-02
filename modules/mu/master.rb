@@ -313,6 +313,7 @@ module MU
       host_luns = {}
       sizes = {}
       lun = lun.to_i # sometimes we get strings
+      size = size.to_f
       %x{/bin/lsscsi -s}.each_line { |l|
         scsi_addr, type, _vendor, _type2, version, device, size = l.split(/\s{2,}/)
         next if type != "disk" or device == "/dev/sda"
@@ -341,7 +342,7 @@ module MU
         return new_candidates.first if new_candidates.size == 1
       end
 
-      MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}#{count ? ", with #{count.to_s} disks on host": ""}#{size ? ", approximately #{size.to_s}gb" : ""}", MU::WARN, details: host_luns
+      MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}#{count ? ", with #{count.to_s} disks on host": ""}#{size ? ", approximately #{size.to_s}gb" : ""}", MU::WARN, details: { "SCSI Hosts => LUNs => Devices" => host_luns, "Disk sizes" => sizes }
 
       nil
     end
