@@ -16,7 +16,7 @@ module Mutools
       base_url = "http://metadata.google.internal/computeMetadata/v1"
       begin
         Timeout.timeout(2) do
-          response = open(
+          response = URI.open(
             "#{base_url}/#{param}",
             "Metadata-Flavor" => "Google"
           ).read
@@ -36,7 +36,23 @@ module Mutools
       base_url = "http://169.254.169.254/latest"
       begin
         Timeout.timeout(2) do
-          response = open("#{base_url}/#{param}").read
+          response = URI.open("#{base_url}/#{param}").read
+          return response
+        end
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+        # This is fairly normal, just handle it gracefully
+      end
+      nil
+    end
+ 
+    # Fetch an Azure instance metadata parameter (example: instance/compute/name)
+    # @param param [String]: The parameter name to fetch
+    # @return [String, nil]
+    def get_azure_metadata(param = "compute")
+      base_url = "http://169.254.169.254/metadata"
+      begin
+        Timeout.timeout(2) do
+          response = URI.open("#{base_url}/#{param}?api-version=2020-09-01","Metadata"=>"true").read
           return response
         end
       rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
