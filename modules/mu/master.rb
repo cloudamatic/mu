@@ -313,7 +313,9 @@ module MU
       host_luns = {}
       sizes = {}
       lun = lun.to_i # sometimes we get strings
-      size = size.to_f
+      if size.is_a?(String)
+        size = size.chomp.gsub(/[^0-9\.]/i, '').to_f
+      end
       %x{/bin/lsscsi -s}.each_line { |l|
         scsi_addr, type, _vendor, _type2, version, device, size = l.split(/\s{2,}/)
         next if type != "disk" or device == "/dev/sda"
