@@ -320,7 +320,7 @@ module MU
         host, channel, target, lun_id = scsi_addr.gsub(/[\[\]]/, '').split(/:/)
         host_luns[host] ||= {}
         host_luns[host][lun_id.to_i] = device
-        sizes[device] = size.gsub(/[a-z]/i, '').to_f
+        sizes[device] = size.chomp.gsub(/[^0-9\.]/i, '').to_f
       }
 
       candidates = []
