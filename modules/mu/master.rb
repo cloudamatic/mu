@@ -317,12 +317,12 @@ module MU
         size = size.chomp.gsub(/[^0-9\.]/i, '').to_f
       end
       %x{/bin/lsscsi -s}.each_line { |l|
-        scsi_addr, type, _vendor, _type2, version, device, size = l.split(/\s{2,}/)
+        scsi_addr, type, _vendor, _type2, version, device, size_gb = l.split(/\s{2,}/)
         next if type != "disk" or device == "/dev/sda"
         host, channel, target, lun_id = scsi_addr.gsub(/[\[\]]/, '').split(/:/)
         host_luns[host] ||= {}
         host_luns[host][lun_id.to_i] = device
-        sizes[device] = size.chomp.gsub(/[^0-9\.]/i, '').to_f
+        sizes[device] = size_gb.chomp.gsub(/[^0-9\.]/i, '').to_f
       }
 
       candidates = []
@@ -342,6 +342,16 @@ module MU
           end
         }
         return new_candidates.first if new_candidates.size == 1
+
+        # *sigh* the API lies about the actual disk size, so try to get it by
+        # fudging
+        candidates.each { |device|
+          if sizes[device] < (size + size*0.075) and sizes[device] > (size - size*0.075)
+            new_candidates << device
+          end
+        }
+        return new_candidates.first if new_candidates.size == 1
+
       end
 
       MU.log "Failed to narrow down an appropriate block device from SCSI LUN #{lun.to_s}#{count ? ", with #{count.to_s} disks on host": ""}#{size ? ", approximately #{size.to_s}gb" : ""}", MU::WARN, details: { "SCSI Hosts => LUNs => Devices" => host_luns, "Disk sizes" => sizes }
