@@ -671,7 +671,11 @@ file "/etc/chef/validation.pem" do
   action :nothing
 end
 file "/etc/chef/client.rb" do
-  action :nothing
+  if File.read("/etc/chef/client.rb").chomp == %Q{chef_license 'accept'}
+    action :delete
+  else
+    action :nothing
+  end
 end
 
 knife_cfg = "-c /root/.chef/knife.rb"
