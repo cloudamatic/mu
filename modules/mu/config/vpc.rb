@@ -1066,6 +1066,11 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
 
         end
 
+        # XXX This definitely should be generic
+        if vpc_block['id'].is_a?(MU::Cloud::Azure::Id)
+          vpc_block['id'] = vpc_block['id'].to_s
+        end
+
         return ok
       end
 

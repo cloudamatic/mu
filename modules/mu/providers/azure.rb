@@ -142,6 +142,13 @@ module MU
           end
         end
 
+        # Check for quality with another one of our kind
+        # @param o [MU::Cloud::Azure::Id]
+        def ==(o)
+          return false if o.nil? or !o.is_a?(MU::Cloud::Azure::Id)
+          (o.subscription == @subscription and o.resource_group == @resource_group and o.provider == @provider and o.type == @type and o.name == @name)
+        end
+
         # Return a reasonable string representation of this {MU::Cloud::Azure::Id}
         def to_s
           @name
@@ -175,6 +182,22 @@ module MU
 
         @@is_in_azure = false
         false
+      end
+
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.network_profile or !instance.network_profile.network_interfaces or instance.network_profile.network_interfaces.empty?
+        iface_id = Id.new(instance.network_profile.network_interfaces.first.id)
+        iface_desc = MU::Cloud::Azure.network().network_interfaces.get(iface_id.resource_group, iface_id.name)
+        subnet_id = Id.new(iface_desc.ip_configurations.first.subnet.id)
+        vpc_id = subnet_id.raw.split(/\//)[8]
+        vpc = MU::MommaCat.findStray("Azure", "vpc", cloud_id: vpc_id, dummy_ok: true)
+
+        return nil if vpc.nil? or vpc.size == 0
+        vpc.first
       end
 
       # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
@@ -380,7 +403,11 @@ module MU
         sku.name = "standard" # ...I'm angry about this
 
         props = MU::Cloud::Azure.keyvault(:VaultProperties).new
-        props.tenant_id = cred_hash[:tenant_id]
+        props.tenant_id = cred_hash[:tenant_id] # token credentials don't set this, because of course they don't
+        props.tenant_id ||= credConfig(credentials)["directory_id"]
+        if !props.tenant_id
+          raise MuError.new "Unable to glean our tenant/directory ID from loaded credentials. Add directory_id to the mu.yaml stanza for Azure credential set '#{credConfig(credentials, name_only: true)}' to fix.", details: { "Live credential object" => cred_hash, "Crendential config for #{credConfig(credentials, name_only: true)}" => credConfig(credentials) } # XXX see note in getSDKOptions about possible alternative
+        end
         props.enabled_for_deployment = true
         props.sku = sku
         props.access_policies = []
@@ -569,23 +596,25 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         args["api-version"] = api_version
         arg_str = args.keys.sort.map { |k| k.to_s+"="+CGI.escape(args[k].to_s) }.join("&")
 
-        begin
-          Timeout.timeout(2) do
-            resp = JSON.parse(URI.open("#{base_url}?#{arg_str}","Metadata"=>"true").read)
-            MU.log "curl -H Metadata:true "+"#{base_url}?#{arg_str}", loglevel, details: resp
-            if svc != "instance"
-              return resp
-            else
-              @@metadata = resp
-            end
+        resp = begin
+          raw_resp = Timeout.timeout(3) do
+            URI.open("#{base_url}?#{arg_str}","Metadata"=>"true").read
+          end
+          resp = JSON.parse(raw_resp)
+
+          MU.log "#{svc}: curl -H Metadata:true #{base_url}?#{arg_str}", loglevel, details: resp
+          if svc != "instance"
+            return resp
+          else
+            @@metadata = resp
           end
           return @@metadata
 
         rescue Timeout::Error
-          # MU.log "Timeout querying Azure Metadata"
+          MU.log "Timeout querying Azure Metadata", MU::ERR if debug
           return nil
-        rescue
-          # MU.log "Failed to get Azure MetaData."
+        rescue StandardError => e
+          MU.log "Failed to get Azure MetaData: #{e.inspect}", MU::ERR if debug
           return nil
         end
       end
@@ -598,11 +627,14 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
 
+# XXX machine credentials don't show the directory_id/tenant_id, which is a problem because we need it for some API calls. Perhaps: create a stub managed identity (which does show it) and authorize using it purely to extract the directory_id
+
         if cfg and MU::Cloud::Azure.hosted?
           token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" })
           if !token
-            MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
-            raise MuError, "Failed to get machine oauth token"
+            sleep 1
+            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+            raise MuError, "Failed to get machine oauth token" if !token
           end
           machine = MU::Cloud::Azure.get_metadata
           return {

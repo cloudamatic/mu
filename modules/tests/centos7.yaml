@@ -8,7 +8,13 @@ servers:
   platform: centos7
   vpc:
     name: wrapper
-  size: m3.medium
+<% if cloud == "AWS" %>
+  size: m4.large
+<% elsif cloud == "Azure" %>
+  size: Standard_DS1_v2
+<% elsif cloud == "Google" %>
+  size: n1-standard-2
+<% end %>
   run_list:
   - recipe[mu-tools::apply_security]
   - recipe[mu-tools::updates]

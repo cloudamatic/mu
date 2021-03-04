@@ -33,7 +33,7 @@ module MU
             if @cloud_id
               cloud_desc
               @cloud_id = Id.new(cloud_desc.id)
-              @resource_group ||= @cloud_id.resource_group
+              @resource_group = @cloud_id.resource_group if @cloud_id.resource_group
               loadSubnets(use_cache: true)
             end
           elsif @config['scrub_mu_isms']
@@ -130,6 +130,35 @@ module MU
           @cloud_desc_cache
         end
 
+        # List the CIDR blocks to which this VPC has routes. Exclude obvious
+        # things like +0.0.0.0/0+.
+        # @param subnets [Array<String>]: Only return the routes relevant to these subnet ids
+        def routes(subnets: [])
+          cloud_desc
+          routes = cloud_desc.address_space.address_prefixes
+          subnet_ids = @subnets.map { |s| s.cloud_desc.id }
+
+          rtbs = MU::Cloud::Azure.network(credentials: @credentials).route_tables.list(@resource_group)
+          rtbs.each { |rtb|
+            next if !rtb.subnets or !rtb.routes
+            rtb.subnets.each { |s|
+              if subnet_ids.include?(s.id)
+                rtb.routes.each { |r|
+                  next if r.address_prefix == "0.0.0.0/0"
+                  routes << r.address_prefix
+                }
+                break
+              end
+            }
+          }
+routes.each { |r|
+puts r.class.name
+}
+          MU.log @cloud_id, MU::NOTICE, details: routes.uniq
+
+          routes.uniq
+        end
+
         # Locate and return cloud provider descriptors of this resource type
         # which match the provided parameters, or all visible resources if no
         # filters are specified. At minimum, implementations of +find+ must
@@ -155,7 +184,6 @@ module MU
             id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
             resource_groups.each { |rg|
               resp = MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.get(rg, id_str)
-
               found[Id.new(resp.id)] = resp if resp
             }
           else
@@ -168,6 +196,10 @@ module MU
                 found[Id.new(net.id)] = net
               }
             end
+          end
+
+          if args[:region]
+            found.reject!{ |k, v| v.location != args[:region] }
           end
 
           found
