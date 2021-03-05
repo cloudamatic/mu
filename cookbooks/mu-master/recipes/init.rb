@@ -239,7 +239,7 @@ end
 
 rpms = {
   "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
-  "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
+  "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el7.x86_64.rpm" # why el7? because that's the name of the package for both 7 and 8 for some reason
 }
 
 rpms["ruby27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.7.2-1.el#{elversion}.x86_64.rpm"
