@@ -13,7 +13,7 @@ if [ "$MU_BRANCH" == "" ];then
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
-DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | grep -v "release-eula" |  cut -d"-" -f3`
 #IS_AMAZON=0
 if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
   DIST_VERSION=6
@@ -22,11 +22,7 @@ elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
   DIST_VERSION="6"
 fi
 
-if [ "$DIST_VERSION" == 7 ];then
-  CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
-else
-  CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-fi
+CHEF_CLIENT_PKG="chef-${CHEF_CLIENT_VERSION}.el${DIST_VERSION}.x86_64"
 
 
 if ! /bin/rpm -q curl > /dev/null ;then

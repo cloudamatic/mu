@@ -209,7 +209,8 @@ when 'rhel'
     removepackages = ['nagios', 'firewalld']
 
   when 8
-    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+    basepackages.concat(['policycoreutils-python-utils', 'libX11', 'mariadb-devel', 'cryptsetup', 'tcl-devel', 'gdbm-devel', 'sqlite-devel', 'tk-devel', 'perl-CGI', 'perl-DBI', 'perl-Data-Dumper', 'perl-Digest-MD5', 'perl-Git-SVN', 'perl-YAML', 'nvme-cli'])
+    removepackages = ['nagios', 'firewalld']
   else
     raise "Mu does not support RHEL #{node['platform_version']} (matched on #{node['platform_version'].split('.')[0]})"
   end
