@@ -663,22 +663,29 @@ execute "add localhost key to authorized_keys" do
     !found
   }
 end
+
+knife_cfg = "-c /root/.chef/knife.rb"
+
 # XXX foodcritic says this is a repeat declaration, but it's... not
 file "/etc/chef/client.pem" do # ~FC005
-  action :nothing
+  action :delete
+  not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
+  only_if { RUNNING_STANDALONE }
 end
 file "/etc/chef/validation.pem" do
-  action :nothing
+  action :delete
+  not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
+  only_if { RUNNING_STANDALONE }
 end
 file "/etc/chef/client.rb" do
   if File.read("/etc/chef/client.rb").chomp == %Q{chef_license 'accept'}
+    not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
     action :delete
+    only_if { RUNNING_STANDALONE }
   else
     action :nothing
   end
 end
-
-knife_cfg = "-c /root/.chef/knife.rb"
 
 execute "create MU-MASTER Chef client" do
 # XXX I dislike --ssh-verify-host-key=never intensely, but the CLI-documented 'accept_new' doesn't actually work
@@ -690,9 +697,6 @@ execute "create MU-MASTER Chef client" do
   only_if "/opt/chef/bin/knife node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
   not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
-  notifies :delete, "file[/etc/chef/client.rb]", :before
-  notifies :delete, "file[/etc/chef/client.pem]", :before
-  notifies :delete, "file[/etc/chef/validation.pem]", :before
   notifies :start, "service[chef-server]", :before
   only_if { RUNNING_STANDALONE }
 end
