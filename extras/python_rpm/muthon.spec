@@ -13,8 +13,8 @@ Source: https://www.python.org/ftp/python/%{version}/Python-%{version}.tgz
 # executable, so I guess we'll declare dependencies by package ourselves
 AutoReq: no
 # XXX these don't work for some reason
-#%global __requires_exclude ^/usr/local/bin/python$
-#%global __requires_exclude ^/opt/pythons/Python-%{version}/bin/python.*$
+#%%global __requires_exclude ^/usr/local/bin/python$
+#%%global __requires_exclude ^/opt/pythons/Python-%%{version}/bin/python.*$
 
 %{?el6:BuildRequires: mussl}
 %{?el6:BuildRequires: muqlite}
@@ -64,6 +64,7 @@ env -i PATH="/bin:/usr/bin" make
 cd $RPM_BUILD_DIR/Python-%{version}
 env -i PATH="/bin:/usr/bin" make install
 %{prefix}/Python-%{version}/bin/python3 $RPM_SOURCE_DIR/get-pip.py --prefix %{prefix}/Python-%{version}/ || ( ldd %{prefix}/Python-%{version}/bin/python3 ; exit 1 )
+find /opt/pythons/Python-3.8.3/lib/python3.8 -type f -exec sed -i s/'#! *\/usr\/bin\/env python$'/'#!\/usr\/bin\/env python3'/ {} \;
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/
 mkdir -p $RPM_BUILD_ROOT/usr/local/

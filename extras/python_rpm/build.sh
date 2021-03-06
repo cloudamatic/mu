@@ -12,9 +12,9 @@ cd ~/rpmbuild
 echo "Temporarily deleting /usr/local/python-current so rpmbuild can create it"
 link="`readlink /usr/local/python-current`"
 rm -f /usr/local/python-current
-chmod 000 /usr/bin/python # otherwise this brain-dead build system tries to compile parts of itself with the wrong executable
+test -e /usr/bin/python && chmod 000 /usr/bin/python # otherwise this brain-dead build system tries to compile parts of itself with the wrong executable
 env -i PATH="/bin:/usr/bin" /usr/bin/rpmbuild -ba $base/muthon.spec
-chmod 755 /usr/bin/python
+test -f /usr/bin/python && chmod 755 /usr/bin/python
 find ~/rpmbuild/ -type f -name 'muthon*' -exec ls -la {} \;
 if [ "$link" != "" ];then
   ln -s "$link" /usr/local/python-current
