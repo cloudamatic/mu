@@ -13,6 +13,8 @@ BuildRequires: zlib
 BuildRequires: zlib-devel
 BuildRequires: openssl
 
+%define __requires_exclude ^\/usr\/bin\/ruby$
+
 %description
 I was drunk when I wrote this spec file
     
