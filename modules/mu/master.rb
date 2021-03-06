@@ -287,7 +287,7 @@ module MU
         end
 
         Dir.mkdir(path, 0700) if !Dir.exist?(path) # XXX recursive
-        %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
+        %x{/bin/mountpoint "#{path}" > /dev/null 2>&1}
         if $?.exitstatus != 0
           MU.log "Mounting #{alias_device} to #{path}"
           %x{/bin/mount "#{alias_device}" "#{path}"}
