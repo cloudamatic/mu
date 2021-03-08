@@ -1080,7 +1080,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
             token_provider = MsRestAzure::ApplicationTokenProvider.new(
               @cred_hash[:tenant_id],
               @cred_hash[:client_id],
-              @cred_hash[:client_secret]
+              @cred_hash[:client_secret],
               settings
             )
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
