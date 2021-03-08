@@ -641,7 +641,8 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
             credentials: MsRest::TokenCredentials.new(token["access_token"]),
             client_id: token["client_id"],
             subscription: machine["compute"]["subscriptionId"],
-            subscription_id: machine["compute"]["subscriptionId"]
+            subscription_id: machine["compute"]["subscriptionId"],
+            active_directory_settings: (machine["compute"]["location"] =~ /USGov/) ? ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings : ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
           }
         end
 
@@ -666,6 +667,11 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
           map.each_pair { |k, v|
             options[v] = credfile[k] if credfile[k]
           }
+        end
+        if cfg['region'] and cfg['region'] =~ /USGov/
+          options[:active_directory_settings] = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
+        else
+          options[:active_directory_settings] = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
         end
 
         missing = []
@@ -1070,10 +1076,12 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
             raise e if !@cred_hash[:client_secret]
             # Weird approach: generate our own credentials object and invoke a
             # client directly from a particular model profile
+            settings = (machine["compute"]["location"] =~ /USGov/) ? ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings : ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
             token_provider = MsRestAzure::ApplicationTokenProvider.new(
               @cred_hash[:tenant_id],
               @cred_hash[:client_id],
               @cred_hash[:client_secret]
+              settings
             )
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
             begin
