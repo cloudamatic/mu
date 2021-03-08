@@ -18,7 +18,12 @@
 
 include_recipe 'mu-master::firewall-holes'
 
-package ["389-ds", "389-ds-console"]
+if node['platform_version'].to_i >= 8
+  execute "/bin/dnf -y module install 389-directory-server:stable/default"
+  package ["389-ds-base", "389-ds-base-libs", "389-ds-base-devel", "389-ds-base-legacy-tools"]
+else
+  package ["389-ds", "389-ds-console"]
+end
 
 include_recipe 'chef-vault'
 
@@ -73,12 +78,20 @@ end
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
-  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  if node['platform_version'].to_i >= 8
+    command "/sbin/dscreate from-file /root/389ds.tmp/389-directory-setup.inf"
+  else
+    command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  end
   action :nothing
 end
 
 template "/root/389ds.tmp/389-directory-setup.inf"do
-  source "389-directory-setup.inf.erb"
+  if node['platform_version'].to_i >= 8
+    source "389-dscreate.inf.erb"
+  else
+    source "389-directory-setup.inf.erb"
+  end
   variables :hostname => $MU_CFG["hostname"],
             :address => $MU_CFG["public_address"].match(/^\d+\.\d+\.\d+\.\d+$/) ? "localhost" : $MU_CFG["public_address"],
             :domain => $MU_CFG["ldap"]["domain_name"],

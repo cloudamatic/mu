@@ -1,0 +1,55 @@
+[general]
+;defaults = 999999999
+full_machine_name = <%= @address %>
+admin_domain = <%= @domain %>
+start = True
+;strict_host_checking = False
+
+[slapd]
+;instance_name = localhost
+;port = 389
+root_password = <%= @creds["cfg_directory_adm"]["pw"] %>
+secure_port = 636
+self_sign_cert = True
+self_sign_cert_valid_months = 36
+server_identifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
+suffix= <%= @domain_dn %>
+naming_value= <%= @domain %>
+#RootDN= <%= @creds["root_dn_user"]["user"] %>
+#RootDNPwd= <%= @creds["root_dn_user"]["pw"] %>
+
+[backend-userroot]
+;create_suffix_entry = False
+;require_index = False
+;sample_entries = no
+;suffix =
+
+# v1 file
+#[General]
+#FullMachineName= <%= @address %>
+#SuiteSpotUserID= nobody
+#SuiteSpotGroup= nobody
+#AdminDomain= <%= @domain %>
+#ServerRoot = /usr/lib64/dirsrv
+#StrictHostCheck = false
+#ConfigDirectoryAdminID= <%= @creds["cfg_directory_adm"]["user"] %>
+#ConfigDirectoryAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %>
+#ConfigDirectoryLdapURL= ldap://<%= @address %>:389/o=NetscapeRoot
+#
+#[admin]
+#Port= 9830
+#ServerIpAddress= 0.0.0.0
+#ServerAdminID= <%= @creds["cfg_directory_adm"]["user"] %>
+#ServerAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %>
+#
+#[slapd]
+#AddOrgEntries = Yes
+#AddSampleEntries = No
+#SlapdConfigForMC= Yes
+#UseExistingMC= No
+#ServerPort= 389
+#ServerIdentifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
+#Suffix= <%= @domain_dn %>
+#naming_value= <%= @domain %>
+#RootDN= <%= @creds["root_dn_user"]["user"] %>
+#RootDNPwd= <%= @creds["root_dn_user"]["pw"] %>
