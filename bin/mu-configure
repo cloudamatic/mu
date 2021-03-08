@@ -1537,9 +1537,14 @@ ssl_verify_mode :verify_none
       MU.log "Configuring 389 Directory Services", MU::NOTICE
       _system("#{CHEF_CLIENT} -o 'recipe[mu-master::389ds]'")
       exit 1 if $? != 0
+begin
       MU::Master::LDAP.initLocalLDAP
+rescue Net::LDAP::Error => e
+MU.log  e.message, MU::ERR
+end
+
       _system("#{CHEF_CLIENT} -o 'recipe[mu-master::sssd]'")
-      exit 1 if $? != 0
+#      exit 1 if $? != 0
     end
   end
 
