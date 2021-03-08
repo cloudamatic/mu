@@ -15,8 +15,8 @@ server_identifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
 instance_name= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
 suffix= <%= @domain_dn %>
 naming_value= <%= @domain %>
-#RootDN= <%= @creds["root_dn_user"]["user"] %>
-#RootDNPwd= <%= @creds["root_dn_user"]["pw"] %>
+root_dn= <%= @creds["root_dn_user"]["user"] %>
+root_dn_pw= <%= @creds["root_dn_user"]["pw"] %>
 
 [backend-userroot]
 ;create_suffix_entry = False
