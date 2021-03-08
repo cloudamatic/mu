@@ -42,7 +42,11 @@ when 'rhel'
     basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
 
   when 8
-    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+    basepackages.concat(["mariadb", "iptables-services"])
+    basepackages.delete("python-pip")
+    basepackages.delete("python-devel")
+    basepackages.delete("graphviz-devel")
+    basepackages.delete("ImageMagick-devel")
   else
     raise "Mu does not support RHEL #{node['platform_version']}"
   end
