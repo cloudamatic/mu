@@ -158,6 +158,7 @@ ruby_block "import SSL certificates for 389ds" do
     }
 
   end
+  only_if { node['platform_version'].to_i < 8 } # XXX the password for the NSS database doesn't work and I don't have time to waste sorting out why
   notifies :create, "file[/root/389ds.tmp/blank]", :before
   notifies :run, "execute[389ds cert util]", :immediately
 end

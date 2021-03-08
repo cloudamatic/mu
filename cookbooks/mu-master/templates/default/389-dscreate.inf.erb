@@ -6,13 +6,13 @@ start = True
 ;strict_host_checking = False
 
 [slapd]
-;instance_name = localhost
-;port = 389
+port = 389
 root_password = <%= @creds["cfg_directory_adm"]["pw"] %>
 secure_port = 636
 self_sign_cert = True
 self_sign_cert_valid_months = 36
 server_identifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
+instance_name= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %>
 suffix= <%= @domain_dn %>
 naming_value= <%= @domain %>
 #RootDN= <%= @creds["root_dn_user"]["user"] %>
