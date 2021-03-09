@@ -254,9 +254,9 @@ module MU
         elsif MU::Cloud::Azure.hosted?
           # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
           metadata = get_metadata()
-          metadata['compute']['location']
+          metadata['compute']['location'].downcase
         else
-          "eastus"
+          "eastus" # XXX this only makes sense in commercial
         end
 
         return @@myRegion_var
@@ -1209,7 +1209,7 @@ MU.log stdpath, MU::NOTICE, details: @cred_hash
                 raise e
               end
             rescue ::MsRestAzure::AzureOperationError, ::MsRest::HttpOperationError => e
-              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::NOTICE, details: arguments
+              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin
                 parsed = JSON.parse(e.message)
                 if parsed["response"] and parsed["response"]["body"]
@@ -1231,7 +1231,6 @@ MU.log stdpath, MU::NOTICE, details: @cred_hash
 
 #                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
 #                    MU.log e.backtrace[0], MU::WARN, details: parsed
-		    MU.log @parent.credentials, MU::WARN, details: @parent.cred_hash
                     raise MU::Cloud::Azure::APIError.new err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})", details: parsed, silent: true
                   end
                 end
