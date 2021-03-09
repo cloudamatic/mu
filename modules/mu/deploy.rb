@@ -485,8 +485,12 @@ Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) successf
 <br>
 <pre>#{$str}</pre>
 MESSAGE_END
+        begin
         Net::SMTP.start('localhost') do |smtp|
           smtp.send_message message, @fromName, data["email"]
+        end
+        rescue StandardError => e
+          MU.log "Error sending notification message to #{data['email']}: #{e.message}", MU::WARN
         end
       end
     end
