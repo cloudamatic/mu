@@ -716,7 +716,8 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
             options[v] = credfile[k] if credfile[k]
           }
         end
-        options[:active_directory_settings] = endpointSettings(cfg['region'])
+        options[:active_directory_settings] = ad_settings
+        options[:base_url] = az_env.resource_manager_endpoint_url
 
         missing = []
         map.values.each { |v|
@@ -1116,12 +1117,6 @@ attr_reader :cred_hash
           # profiles available depending which way you do it, so... try that?
           stdpath = "::Azure::#{api}::Profiles::#{profile}::Mgmt::Client"
           begin
-	  endpoint_sym = (api.gsub(/([\w^_](?=[A-Z]))|([a-z](?=\d+))/, '\1\2_').downcase+"_endpoint_url").to_sym
-
-#        @resource_management_client = ::Azure::ARM::Resources::ResourceManagementClient.new(credentials, management_endpoint)
-#        @resource_management_client.subscription_id = subscription_id
-
-MU.log stdpath, MU::NOTICE, details: @cred_hash
             # Standard approach: get a client from a canned, approved profile
             @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
@@ -1133,12 +1128,14 @@ MU.log stdpath, MU::NOTICE, details: @cred_hash
               @cred_hash[:tenant_id],
               @cred_hash[:client_id],
               @cred_hash[:client_secret],
-#              settings
+              @cred_hash[:active_directory_settings]
             )
+            az_env.resource_manager_endpoint_url
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
             begin
               modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{@subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
+              @api.base_url = @cred_hash[:base_url] # XXX verify that this is even needed, as well as whether it's correct
             rescue NameError
               raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
             end
