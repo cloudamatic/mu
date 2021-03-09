@@ -332,6 +332,7 @@ module MU
         subscriptions = []
 
         sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list
+	return [] if !sdk_response
 
         sdk_response.each do |subscription|
           subscriptions.push(subscription.subscription_id)
@@ -619,6 +620,50 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         end
       end
 
+      # Credentials from the API use a different settings blob for alternate
+      # clouds (ex: USGov), so provide a shorthand for fetchingthose based on
+      # the environment or region name.
+      # @param env [String]
+      # @return [Array<MsRestAzure::AzureEnvironments,MsRestAzure::ActiveDirectoryServiceSettings>]
+      def self.endpointSettings(env = "AzureCloud")
+				env ||= "AzureCloud" # in case of explicit nil
+
+        case env.to_s
+        when "AzureUSGovernmentCloud"
+					urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
+          settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
+        when "AzureChinaCloud"
+					urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
+          settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_china_settings
+        when "AzureGermanCloud"
+					urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
+          settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_german_settings
+        when "AzureCloud"
+					urls = MsRestAzure::AzureEnvironments::AzureCloud
+          settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
+        end
+
+        if !settings # maybe we got a region name instead
+          case env.to_s
+          when /^USGov/i
+						urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
+            settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
+          when /^China/i 
+						urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
+            settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_china_settings
+          when /^germany/i
+						urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
+            settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_german_settings
+          else
+						urls = MsRestAzure::AzureEnvironments::AzureCloud
+            settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
+          end
+        end
+
+        [urls, settings]
+      end
+
+
       # Map our SDK authorization options from MU configuration into an options
       # hash that Azure understands. Raises an exception if any fields aren't
       # available.
@@ -630,19 +675,22 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 # XXX machine credentials don't show the directory_id/tenant_id, which is a problem because we need it for some API calls. Perhaps: create a stub managed identity (which does show it) and authorize using it purely to extract the directory_id
 
         if cfg and MU::Cloud::Azure.hosted?
-          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" })
+          machine = MU::Cloud::Azure.get_metadata
+					az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>az_env.resource_manager_endpoint_url })
           if !token
             sleep 1
-            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>az_env.resource_manager_endpoint_url }, debug: true)
             raise MuError, "Failed to get machine oauth token" if !token
           end
-          machine = MU::Cloud::Azure.get_metadata
+
           return {
             credentials: MsRest::TokenCredentials.new(token["access_token"]),
             client_id: token["client_id"],
+            base_url: token['resource'],
             subscription: machine["compute"]["subscriptionId"],
             subscription_id: machine["compute"]["subscriptionId"],
-            active_directory_settings: (machine["compute"]["location"] =~ /USGov/) ? ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings : ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
+            active_directory_settings: ad_settings
           }
         end
 
@@ -668,11 +716,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
             options[v] = credfile[k] if credfile[k]
           }
         end
-        if cfg['region'] and cfg['region'] =~ /USGov/
-          options[:active_directory_settings] = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
-        else
-          options[:active_directory_settings] = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
-        end
+        options[:active_directory_settings] = endpointSettings(cfg['region'])
 
         missing = []
         map.values.each { |v|
@@ -1051,6 +1095,8 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         attr_reader :issuer
         attr_reader :subclass
         attr_reader :api
+attr_reader :credentials
+attr_reader :cred_hash
 
         def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
           subclass ||= api.sub(/s$/, '')+"Client"
@@ -1070,18 +1116,24 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
           # profiles available depending which way you do it, so... try that?
           stdpath = "::Azure::#{api}::Profiles::#{profile}::Mgmt::Client"
           begin
+	  endpoint_sym = (api.gsub(/([\w^_](?=[A-Z]))|([a-z](?=\d+))/, '\1\2_').downcase+"_endpoint_url").to_sym
+
+#        @resource_management_client = ::Azure::ARM::Resources::ResourceManagementClient.new(credentials, management_endpoint)
+#        @resource_management_client.subscription_id = subscription_id
+
+MU.log stdpath, MU::NOTICE, details: @cred_hash
             # Standard approach: get a client from a canned, approved profile
             @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
             raise e if !@cred_hash[:client_secret]
             # Weird approach: generate our own credentials object and invoke a
             # client directly from a particular model profile
-            settings = (machine["compute"]["location"] =~ /USGov/) ? ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings : ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
+#            settings = (@credentials['region'] =~ /USGov/) ? ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings : ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
             token_provider = MsRestAzure::ApplicationTokenProvider.new(
               @cred_hash[:tenant_id],
               @cred_hash[:client_id],
               @cred_hash[:client_secret],
-              settings
+#              settings
             )
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
             begin
@@ -1157,7 +1209,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
                 raise e
               end
             rescue ::MsRestAzure::AzureOperationError, ::MsRest::HttpOperationError => e
-              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
+              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::NOTICE, details: arguments
               begin
                 parsed = JSON.parse(e.message)
                 if parsed["response"] and parsed["response"]["body"]
@@ -1179,6 +1231,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 
 #                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
 #                    MU.log e.backtrace[0], MU::WARN, details: parsed
+		    MU.log @parent.credentials, MU::WARN, details: @parent.cred_hash
                     raise MU::Cloud::Azure::APIError.new err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})", details: parsed, silent: true
                   end
                 end
