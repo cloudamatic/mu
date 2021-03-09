@@ -849,7 +849,7 @@ module MU
             winrm.listeners = [winrm_listen]
 
             win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
-            win_obj.win_rmconfiguration = winrm
+            win_obj.win_rm = winrm
             os_obj.windows_configuration = win_obj
             os_obj.admin_username = @config['windows_admin_username']
             os_obj.admin_password = begin
