@@ -332,7 +332,7 @@ module MU
         subscriptions = []
 
         sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list
-	return [] if !sdk_response
+  return [] if !sdk_response
 
         sdk_response.each do |subscription|
           subscriptions.push(subscription.subscription_id)
@@ -477,6 +477,7 @@ module MU
       # @param value [String]: The contents of the secret
       def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
         deploy_id = deploy.deploy_id
+        name ||= deploy_id+"-secret"
 
         listRegions.each { |region|
           next if !deploy.regionsUsed.include?(region)
@@ -485,8 +486,11 @@ module MU
 
           resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
           next if !resp
-MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
-
+#MU.log "vault existence check #{vaultname} for #{name}", MU::WARN, details: resp
+# XXX none of this works because the SDK is buggy; see https://github.com/Azure/azure-sdk-for-ruby/issues/2826
+#          MU.log "get_certificates", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_certificates(resp.properties.vault_uri)
+#          MU.log "get_secrets", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets(resp.properties.vault_uri)
+#raise "nah"
         }
       end
 
@@ -626,36 +630,36 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
       # @param env [String]
       # @return [Array<MsRestAzure::AzureEnvironments,MsRestAzure::ActiveDirectoryServiceSettings>]
       def self.endpointSettings(env = "AzureCloud")
-				env ||= "AzureCloud" # in case of explicit nil
+        env ||= "AzureCloud" # in case of explicit nil
 
         case env.to_s
         when "AzureUSGovernmentCloud"
-					urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
+          urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
           settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
         when "AzureChinaCloud"
-					urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
+          urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
           settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_china_settings
         when "AzureGermanCloud"
-					urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
+          urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
           settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_german_settings
         when "AzureCloud"
-					urls = MsRestAzure::AzureEnvironments::AzureCloud
+          urls = MsRestAzure::AzureEnvironments::AzureCloud
           settings = ::MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
         end
 
         if !settings # maybe we got a region name instead
           case env.to_s
           when /^USGov/i
-						urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
+            urls = MsRestAzure::AzureEnvironments::AzureUSGovernment
             settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_us_government_settings
           when /^China/i 
-						urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
+            urls = MsRestAzure::AzureEnvironments::AzureChinaCloud
             settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_china_settings
           when /^germany/i
-						urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
+            urls = MsRestAzure::AzureEnvironments::AzureGermanCloud
             settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_german_settings
           else
-						urls = MsRestAzure::AzureEnvironments::AzureCloud
+            urls = MsRestAzure::AzureEnvironments::AzureCloud
             settings = MsRestAzure::ActiveDirectoryServiceSettings.get_azure_settings
           end
         end
@@ -676,7 +680,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
 
         if cfg and MU::Cloud::Azure.hosted?
           machine = MU::Cloud::Azure.get_metadata
-					az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
+          az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
           token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>az_env.resource_manager_endpoint_url })
           if !token
             sleep 1
@@ -927,6 +931,24 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         return @@keyvault_api[credentials]
       end
 
+      # The Azure KeyVault API for items
+      # @param model [<Azure::Apis::KeyVault::V7_1::Models>]: If specified, will return the class ::Azure::Apis::KeyVault::V7_1::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.keyvault_items(model = nil, alt_object: nil, credentials: nil, model_version: "V7_1")
+        require 'azure_key_vault'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("KeyVault").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@keyvault_item_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "KeyVault", credentials: credentials, subclass: alt_object, profile: model_version, path: "Azure::KeyVault::#{model_version}::KeyVaultClient")
+        end
+
+        return @@keyvault_item_api[credentials]
+      end
+
       # The Azure Features API
       # @param model [<Azure::Apis::Features::Mgmt::V2015_12_01::Models>]: If specified, will return the class ::Azure::Apis::Features::Mgmt::V2015_12_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
@@ -1082,6 +1104,7 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
       @@containers_api = {}
       @@features_api = {}
       @@keyvault_api = {}
+      @@keyvault_item_api = {}
       @@apis_api = {}
       @@marketplace_api = {}
       @@service_identity_api = {}
@@ -1096,10 +1119,8 @@ MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
         attr_reader :issuer
         attr_reader :subclass
         attr_reader :api
-attr_reader :credentials
-attr_reader :cred_hash
 
-        def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
+        def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil, path: nil)
           subclass ||= api.sub(/s$/, '')+"Client"
           @subclass = subclass
           @wrapper_semaphore = Mutex.new
@@ -1115,10 +1136,15 @@ attr_reader :cred_hash
 
           # There seem to be multiple ways to get at clients, and different 
           # profiles available depending which way you do it, so... try that?
-          stdpath = "::Azure::#{api}::Profiles::#{profile}::Mgmt::Client"
+          path ||= "::Azure::#{api}::Profiles::#{profile}::Mgmt::Client"
           begin
             # Standard approach: get a client from a canned, approved profile
-            @api = Object.const_get(stdpath).new(@cred_hash)
+            begin
+              @api = Object.const_get(path).new(@cred_hash)
+            rescue ArgumentError => e
+              raise e if e.message !~ /invalid type of credentials/
+              @api = Object.const_get(path).new(@cred_hash[:credentials])
+            end
           rescue NameError => e
             raise e if !@cred_hash[:client_secret]
             # Weird approach: generate our own credentials object and invoke a
@@ -1137,7 +1163,7 @@ attr_reader :cred_hash
               @api = Object.const_get(modelpath).new(@cred_obj)
               @api.base_url = @cred_hash[:base_url] # XXX verify that this is even needed, as well as whether it's correct
             rescue NameError
-              raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
+              raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{path}\n#{modelpath}"
             end
           end
         end

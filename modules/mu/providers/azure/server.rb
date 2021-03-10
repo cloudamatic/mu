@@ -282,7 +282,10 @@ module MU
           end
 
           @groomer.saveDeployData
-
+if windows?
+MU.log "Windows grooms won't work until the Azure SDK for keyvault works, so we can put certificates somewhere WinRM understands", MU::WARN
+return
+end
           begin
             @groomer.run(purpose: "Full Initial Run", max_retries: 15)
           rescue MU::Groomer::RunError
@@ -842,14 +845,14 @@ module MU
 
           os_obj = MU::Cloud::Azure.compute(:OSProfile).new
           if windows?
-            winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
-            winrm_listen.certificate_url = "goddamn stupid ass thing"
-            winrm_listen.protocol = "https"
-            winrm = MU::Cloud::Azure.compute(:WinRMConfiguration).new
-            winrm.listeners = [winrm_listen]
+#            winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
+#            winrm_listen.certificate_url = "goddamn stupid ass thing"
+#            winrm_listen.protocol = "https"
+#            winrm = MU::Cloud::Azure.compute(:WinRMConfiguration).new
+#            winrm.listeners = [winrm_listen]
 
             win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
-            win_obj.win_rm = winrm
+#            win_obj.win_rm = winrm
             os_obj.windows_configuration = win_obj
             os_obj.admin_username = @config['windows_admin_username']
             os_obj.admin_password = begin

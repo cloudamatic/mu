@@ -260,6 +260,7 @@ module MU
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         self.class.loadChefLib
+return nil if @config['cloud'] == "Azure" and @server.windows?
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
@@ -573,6 +574,7 @@ module MU
       # Bootstrap our server with Chef
       def bootstrap
         self.class.loadChefLib
+return nil if @config['cloud'] == "Azure" and @server.windows?
         stashHostSSLCertSecret
         splunkVaultInit
         if !@config['cleaned_chef']
