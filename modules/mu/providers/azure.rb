@@ -805,6 +805,24 @@ module MU
         return @@subscriptions_factory_api[credentials]
       end
 
+      # The Azure SQL API
+      # @param model [<Azure::Apis::SQL::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::SQL::Mgmt::V2018_06_01_preview::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.sql(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_06_01_preview")
+        require 'azure_mgmt_sql'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Compute").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@sql_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "SQL", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@sql_api[credentials]
+      end
+
       # The Azure Compute API
       # @param model [<Azure::Apis::Compute::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::Compute::Mgmt::V2019_04_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
@@ -1096,6 +1114,7 @@ module MU
       @@subscriptions_api = {}
       @@subscriptions_factory_api = {}
       @@compute_api = {}
+      @@sql_api = {}
       @@billing_api = {}
       @@apis_api = {}
       @@network_api = {}
