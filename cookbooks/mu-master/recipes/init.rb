@@ -473,7 +473,7 @@ gemfile_dir = if RUNNING_STANDALONE and !File.readlines("/etc/mtab").grep(/\s\/o
         end
       }
       dmiout = shell_out!(%Q{PATH=/sbin:/usr/sbin:/bin:/usr/bin dmidecode})
-      if dmiout.match(/Google/)
+      if dmiout.stdout.match(/Google/)
         exclude_gems.delete("google-api-client")
       end
 
