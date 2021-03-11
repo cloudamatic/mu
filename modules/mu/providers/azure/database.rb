@@ -22,6 +22,9 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+          @config["groomer"] ||= MU::Config.defaultGroomer
+          @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
+
 
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           if !mu_name.nil?
@@ -36,13 +39,15 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this GKE instance.
         def create
+          @config['master_user'] ||= (@config["name"]+@deploy.timestamp+MU.seed.downcase)[0..127].gsub!(/[^a-z0-9]/i, "")
+
           create_update
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
           create_update
-
+          MU.log "SQL Database #{@config['name']} is at #{cloud_desc.fully_qualified_domain_name}", MU::SUMMARY
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -69,8 +74,11 @@ module MU
           if args[:cloud_id]
             id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
             resource_groups.each { |rg|
-              MU::Cloud::Azure.containers(credentials: args[:credentials]).servers.list_by_resource_group(args[:resource_group]).each { |db|
-                found[Id.new(resp.id)] = resp if resp and resp.id == args[:cloud_id]
+              MU::Cloud::Azure.sql(credentials: args[:credentials]).servers.list_by_resource_group(args[:resource_group]).each { |db|
+                id = Id.new(db.id)
+                if [id, id.raw, id.name].include?(args[:cloud_id])
+                  found[Id.new(db.id)] = db
+                end
               }
            }
           else
@@ -138,7 +146,15 @@ module MU
         private
 
         def create_update
-#          MU::Cloud::Azure.sql(credentials: @credentials).servers.create_or_update(@resource_group, @cloud_id, parameters)
+          getPassword(complex: true) # generate or retrieve from secure storage as applicable
+
+          server_obj = MU::Cloud::Azure.sql(:Server).new
+          server_obj.location = @region
+          server_obj.administrator_login = @config["master_user"]
+          server_obj.administrator_login_password = @config["password"]
+          server_obj.version = "12.0"
+          resp = MU::Cloud::Azure.sql(credentials: @credentials).servers.create_or_update(@resource_group, @mu_name, server_obj)
+          @cloud_id = Id.new(resp.id)
         end
 
       end #class

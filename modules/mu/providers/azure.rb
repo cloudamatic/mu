@@ -811,11 +811,11 @@ module MU
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.sql(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_06_01_preview")
+      def self.sql(model = nil, alt_object: nil, credentials: nil, model_version: "V2014_04_01")
         require 'azure_mgmt_sql'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("Compute").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("SQL").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
           @@sql_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "SQL", credentials: credentials, subclass: alt_object)
         end

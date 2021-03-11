@@ -21,7 +21,8 @@ module MU
     class Database
 
       # Getting the password for a database's master user, and saving it in a database / cluster specific vault
-      def getPassword
+      # @param complex [Boolean]: When generating passwords, use {Password.random} instead of {Password.pronounceable}
+      def getPassword(complex: false)
         if @config['password'].nil?
           if @config['auth_vault'] && !@config['auth_vault'].empty?
             @config['password'] = @groomclass.getSecret(
@@ -31,7 +32,7 @@ module MU
             )
           else
             # Should we use random instead?
-            @config['password'] = Password.pronounceable(10..12)
+            @config['password'] = complex ? Password.random(12..14) : Password.pronounceable(10..12)
           end
         end
   
