@@ -151,9 +151,6 @@ module MU
               end
             }
           }
-routes.each { |r|
-puts r.class.name
-}
           MU.log @cloud_id, MU::NOTICE, details: routes.uniq
 
           routes.uniq

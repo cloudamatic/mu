@@ -389,6 +389,16 @@ module MU
         }
       end
 
+      def self.myServiceAccount(credentials)
+        cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+        MU::Cloud::Azure.serviceaccts(credentials: credentials).user_assigned_identities.list_by_subscription().select { |svc_acct|
+          (
+            svc_acct.client_id == cred_hash[:client_id] and
+            svc_acct.id =~ /subscriptions\/#{Regexp.quote(cred_hash[:subscription_id])}\//
+          )
+        }.first
+      end
+
       # Arguably this should be a first class resource, but for now we'll do
       # it here since we're going to have a generic deployment vault in every
       # resource group.
@@ -398,6 +408,8 @@ module MU
       # @param credentials [String]:
       def self.createVault(rg, region, deploy, credentials: nil)
         cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+        my_svc_acct = myServiceAccount(credentials)
+
         vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
         MU::Cloud::Azure.ensureProvider("Microsoft.KeyVault", credentials: credentials)
         sku = MU::Cloud::Azure.keyvault(:Sku).new
@@ -418,7 +430,27 @@ module MU
         params.properties = props
 
         MU.log "Creating KeyVault #{vaultname} in #{region}"
-        MU::Cloud::Azure.keyvault(credentials: credentials).vaults.create_or_update(rg, vaultname, params)
+        resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.create_or_update(rg, vaultname, params)
+
+        my_perms = MU::Cloud::Azure.keyvault(:Permissions).new
+        my_perms.certificates = ["all"]
+        my_perms.keys = ["all"]
+        my_perms.secrets = ["all"]
+        my_acl = MU::Cloud::Azure.keyvault(:AccessPolicyEntry).new
+        my_acl.object_id = my_svc_acct.principal_id
+        my_acl.tenant_id = my_svc_acct.tenant_id
+        my_acl.permissions = my_perms
+
+        acl_props = MU::Cloud::Azure.keyvault(:VaultAccessPolicyProperties).new
+        acl_props.access_policies = [my_acl]
+
+        acl_params = MU::Cloud::Azure.keyvault(:VaultAccessPolicyParameters).new
+        acl_params.properties = acl_props
+
+        MU.log "Adding superuser access policy to vault #{vaultname}", MU::NOTICE, details: acl_params
+
+        resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.update_access_policy(rg, vaultname, MU::Cloud::Azure.keyvault(:AccessPolicyUpdateKind)::Add, acl_params)
+
       end
 
       @@rg_semaphore = Mutex.new
@@ -472,25 +504,100 @@ module MU
         rg
       end
 
+      # Fetch the cloud descriptor for our standard KeyVault used by a deployment
+      # @param deploy [MU::MommaCat]
+      # @param region [String]
+      # @param credentials [String]
+      # @return [Azure::KeyVault::Mgmt::V2018_02_14::Models::Vault]
+      def self.getDeployVault(deploy, region, credentials: nil)
+        deploy_id = deploy.deploy_id
+        rg = deploy_id+"-"+region.upcase
+        vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
+      end
+
+      # Get the Azure descriptor for a particular secret
+      # @param deploy [MU::MommaCat]
+      # @param name [String]
+      # @param region [String]
+      # @param credentials [String]
+      def self.getVaultSecret(deploy, name, region, credentials: nil)
+        vault_desc = getDeployVault(deploy, region, credentials: credentials)
+
+# XXX we're calling the _async versions of these methods because the SDK is
+# legit broken
+        items = MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secret_versions_async(vault_desc.properties.vault_uri, name.gsub(/[^0-9a-zA-Z-]/, '-')).value!.body.value
+MU.log "results fishing for #{name}", MU::NOTICE, details: items
+
+if items.empty?
+  MU.log "get_secrets", MU::WARN, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(vault_desc.properties.vault_uri).value!.body.value
+end
+        items.last
+      end
+
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy [MU::MommaCat]: The deploy for which we're writing the secret
+      # @param name [String]: What to name the secret object
       # @param value [String]: The contents of the secret
-      def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
+      # @param credentials [String]
+      # @param region [String]
+      def self.writeDeploySecret(deploy, value, name = nil, credentials: nil, region: nil)
         deploy_id = deploy.deploy_id
         name ||= deploy_id+"-secret"
+        name.gsub!(/[^0-9a-zA-Z-]/, '-')
 
+        regions = region ? [region] : listRegions
+
+        regions.each { |r|
+          next if !deploy.regionsUsed.include?(r)
+
+          vault_desc = getDeployVault(deploy, r, credentials: credentials)
+          next if !vault_desc
+          vault_url = vault_desc.properties.vault_uri
+
+          MU.log "Writing #{name} to KeyVault #{vault_desc.name}"
+          MU.retrier([Faraday::ConnectionFailed], wait: 5, max: 12) {
+            resp = MU::Cloud::Azure.keyvault_items(credentials: credentials).set_secret(vault_url, name, value)
+            return resp if region
+          }
+
+# XXX we're calling the _async versions of these methods because the SDK is
+# legit broken
+#          MU.log "get_certificates", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_certificates_async(resp.properties.vault_uri).value!
+#          MU.log "get_secrets", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(resp.properties.vault_uri).value!
+        }
+      end
+
+      # Grant read access to the appropriate KeyVault
+      # @param acct [String]: The managed service identity to which we'll grant access
+      # @param deploy_id [String]: The deploy for which we're granting the secret
+      def self.grantDeploySecretAccess(acct, deploy = MU.deploy, name = nil, credentials: nil)
         listRegions.each { |region|
           next if !deploy.regionsUsed.include?(region)
-          rg = deploy_id+"-"+region.upcase
-          vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+          rg = deploy.deploy_id+"-"+region.upcase
 
-          resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
-          next if !resp
-#MU.log "vault existence check #{vaultname} for #{name}", MU::WARN, details: resp
-# XXX none of this works because the SDK is buggy; see https://github.com/Azure/azure-sdk-for-ruby/issues/2826
-#          MU.log "get_certificates", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_certificates(resp.properties.vault_uri)
-#          MU.log "get_secrets", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets(resp.properties.vault_uri)
-#raise "nah"
+          vault_desc = getDeployVault(deploy, region, credentials: credentials)
+
+          next if !vault_desc
+
+          perms = MU::Cloud::Azure.keyvault(:Permissions).new
+          perms.certificates = ["get"]
+          perms.secrets = ["get"]
+          acl = MU::Cloud::Azure.keyvault(:AccessPolicyEntry).new
+          acl.object_id = acct.principal_id
+          acl.tenant_id = acct.tenant_id
+          acl.permissions = perms
+
+          acl_props = MU::Cloud::Azure.keyvault(:VaultAccessPolicyProperties).new
+          acl_props.access_policies = [acl]
+
+          acl_params = MU::Cloud::Azure.keyvault(:VaultAccessPolicyParameters).new
+          acl_params.properties = acl_props
+
+          MU.log "Adding read-only access policy to KeyVault #{vault_desc.properties.vault_uri}", MU::NOTICE, details: acl_params
+
+          resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.update_access_policy(rg, vault_desc.name, MU::Cloud::Azure.keyvault(:AccessPolicyUpdateKind)::Add, acl_params)
+
         }
       end
 
@@ -667,13 +774,12 @@ module MU
         [urls, settings]
       end
 
-
       # Map our SDK authorization options from MU configuration into an options
       # hash that Azure understands. Raises an exception if any fields aren't
       # available.
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [Hash]
-      def self.getSDKOptions(credentials = nil)
+      def self.getSDKOptions(credentials = nil, endpoint: "resource_manager")
         cfg = credConfig(credentials)
 
 # XXX machine credentials don't show the directory_id/tenant_id, which is a problem because we need it for some API calls. Perhaps: create a stub managed identity (which does show it) and authorize using it purely to extract the directory_id
@@ -681,10 +787,22 @@ module MU
         if cfg and MU::Cloud::Azure.hosted?
           machine = MU::Cloud::Azure.get_metadata
           az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
-          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>az_env.resource_manager_endpoint_url })
+          resource_url = if endpoint == "vault"
+            az_env.key_vault_dns_suffix.sub(/^\./, "https://")
+          elsif endpoint == "storage"
+            az_env.key_vault_dns_suffix.sub(/^\./, "https://")
+          elsif endpoint == "gallery"
+            az_env.gallery_endpoint_url
+          elsif endpoint == "ad"
+            az_env.active_directory_endpoint_url
+          else
+            az_env.resource_manager_endpoint_url
+          end
+
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url })
           if !token
             sleep 1
-            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>az_env.resource_manager_endpoint_url }, debug: true)
+            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url }, debug: true)
             raise MuError, "Failed to get machine oauth token" if !token
           end
 
@@ -721,7 +839,7 @@ module MU
           }
         end
         options[:active_directory_settings] = ad_settings
-        options[:base_url] = az_env.resource_manager_endpoint_url
+        options[:base_url] = resource_url
 
         missing = []
         map.values.each { |v|
@@ -829,7 +947,7 @@ module MU
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_03_01")
+      def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2020_12_01")
         require 'azure_mgmt_compute'
 
         if model and model.is_a?(Symbol)
@@ -932,12 +1050,12 @@ module MU
       end
 
       # The Azure KeyVault API
-      # @param model [<Azure::Apis::KeyVault::Mgmt::V2018_02_14::Models>]: If specified, will return the class ::Azure::Apis::KeyVault::Mgmt::V2018_02_14::Models::model instead of an API client instance
+      # @param model [<Azure::Apis::KeyVault::Mgmt::V2019_09_01::Models>]: If specified, will return the class ::Azure::Apis::KeyVault::Mgmt::V2019_09_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.keyvault(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_02_14")
+      def self.keyvault(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_09_01")
         require 'azure_mgmt_key_vault'
 
         if model and model.is_a?(Symbol)
@@ -961,7 +1079,7 @@ module MU
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("KeyVault").const_get(model_version).const_get("Models").const_get(model)
         else
-          @@keyvault_item_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "KeyVault", credentials: credentials, subclass: alt_object, profile: model_version, path: "Azure::KeyVault::#{model_version}::KeyVaultClient")
+          @@keyvault_item_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "KeyVault", credentials: credentials, subclass: alt_object, profile: model_version, path: "Azure::KeyVault::#{model_version}::KeyVaultClient", endpoint: "vault")
         end
 
         return @@keyvault_item_api[credentials]
@@ -1139,7 +1257,7 @@ module MU
         attr_reader :subclass
         attr_reader :api
 
-        def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil, path: nil)
+        def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil, path: nil, endpoint: nil)
           subclass ||= api.sub(/s$/, '')+"Client"
           @subclass = subclass
           @wrapper_semaphore = Mutex.new
@@ -1148,7 +1266,7 @@ module MU
           }
 
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
-          @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+          @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials, endpoint: endpoint)
           if !@cred_hash
             raise MuError, "Failed to load Azure credentials #{credentials ? credentials : "<default>"}"
           end
