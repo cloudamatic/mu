@@ -36,6 +36,10 @@ module MU
       class APIError < MU::MuError
       end
 
+      # Exception class for exclusive use by {MU::Cloud::Azure.getVaultSecret}
+      class MissingVaultSecret < MU::MuError
+      end
+
       # Return a random Azure-valid GUID, because for some baffling reason some
       # API calls expect us to roll our own.
       def self.genGUID
@@ -410,7 +414,7 @@ module MU
         cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
         my_svc_acct = myServiceAccount(credentials)
 
-        vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
         MU::Cloud::Azure.ensureProvider("Microsoft.KeyVault", credentials: credentials)
         sku = MU::Cloud::Azure.keyvault(:Sku).new
         sku.name = "standard" # ...I'm angry about this
@@ -512,7 +516,7 @@ module MU
       def self.getDeployVault(deploy, region, credentials: nil)
         deploy_id = deploy.deploy_id
         rg = deploy_id+"-"+region.upcase
-        vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
         MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
       end
 
@@ -523,15 +527,15 @@ module MU
       # @param credentials [String]
       def self.getVaultSecret(deploy, name, region, credentials: nil)
         vault_desc = getDeployVault(deploy, region, credentials: credentials)
+        realname = name.gsub(/[^0-9a-zA-Z-]/, '-')
 
 # XXX we're calling the _async versions of these methods because the SDK is
-# legit broken
-        items = MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secret_versions_async(vault_desc.properties.vault_uri, name.gsub(/[^0-9a-zA-Z-]/, '-')).value!.body.value
-MU.log "results fishing for #{name}", MU::NOTICE, details: items
+# broken, see https://github.com/Azure/azure-sdk-for-ruby/issues/2828
+        items = MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secret_versions_async(vault_desc.properties.vault_uri, realname).value!.body.value
 
-if items.empty?
-  MU.log "get_secrets", MU::WARN, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(vault_desc.properties.vault_uri).value!.body.value
-end
+        if items.empty?
+          raise MissingVaultSecret.new, "KeyVaultSecret #{realname} not found in vault #{vault_desc.name}", details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(vault_desc.properties.vault_uri).value!.body.value
+        end
         items.last
       end
 
@@ -555,9 +559,10 @@ end
           next if !vault_desc
           vault_url = vault_desc.properties.vault_uri
 
-          MU.log "Writing #{name} to KeyVault #{vault_desc.name}"
-          MU.retrier([Faraday::ConnectionFailed], wait: 5, max: 12) {
-            resp = MU::Cloud::Azure.keyvault_items(credentials: credentials).set_secret(vault_url, name, value)
+          MU.log "Writing #{name} to KeyVault #{vault_desc.name}", MU::NOTICE, details: value
+          MU.retrier([Faraday::ConnectionFailed, MissingVaultSecret], wait: 5, max: 6) {
+            MU::Cloud::Azure.keyvault_items(credentials: credentials).set_secret(vault_url, name, value)
+            resp = getVaultSecret(deploy, name, r, credentials: credentials)
             return resp if region
           }
 
