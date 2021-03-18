@@ -568,10 +568,6 @@ module MU
             return resp if region
           }
 
-# XXX we're calling the _async versions of these methods because the SDK is
-# legit broken
-#          MU.log "get_certificates", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_certificates_async(resp.properties.vault_uri).value!
-#          MU.log "get_secrets", MU::NOTICE, details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(resp.properties.vault_uri).value!
         }
       end
 
@@ -1064,6 +1060,7 @@ module MU
       # @return [MU::Cloud::Azure::SDKClient]
       def self.keyvault(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_09_01")
         require 'azure_mgmt_key_vault'
+        load MU.myRoot+'/modules/mu/monkey_patches/key_vault_client.rb' # XXX workarounds for Microsoft's bugs
 
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("KeyVault").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
