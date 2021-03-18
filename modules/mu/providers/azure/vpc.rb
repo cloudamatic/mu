@@ -54,6 +54,7 @@ module MU
 
           if @config['peers']
             @config['peers'].each { |peer|
+              do_reverse = false
               if peer['vpc']['name']
                 peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
                 next if peer_obj.mu_name < @mu_name # both of us would try to create this peering, otherwise, so don't step on each other
@@ -62,6 +63,7 @@ module MU
                 if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
                   peer['vpc']['deploy_id'] = @deploy.deploy_id
                 end
+                do_reverse = $MU_CFG['allow_invade_foreign_vpcs']
 
                 peer_obj = MU::MommaCat.findStray(
                   "Azure",
@@ -76,37 +78,51 @@ module MU
               end
 
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil?
+
+              peerWith(peer_obj, peer, reverse: do_reverse)
           
-              ext_peerings = MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.list(@resource_group, @cloud_id)
-              peer_name = @mu_name+"-"+@config['name'].upcase+"-"+peer_obj.config['name'].upcase
-              peer_params = MU::Cloud::Azure.network(:VirtualNetworkPeering).new
-              peer_params.remote_virtual_network = peer_obj.cloud_desc
-              peer['allow_forwarded_traffic'] ||= false
-              peer_params.allow_forwarded_traffic = peer['allow_forwarded_traffic']
-              peer['allow_gateway_traffic'] ||= false
-              peer_params.allow_gateway_transit = peer['allow_gateway_traffic']
-
-              need_update = true
-              exists = false
-              ext_peerings.each { |ext_peering|
-                if ext_peering.remote_virtual_network.id == peer_obj.cloud_desc.id
-                  exists = true
-                  need_update = (ext_peering.allow_forwarded_traffic != peer_params.allow_forwarded_traffic or ext_peering.allow_gateway_transit != peer_params.allow_gateway_transit)
-                end
-              }
-
-              if need_update
-                if !exists
-                  MU.log "Creating peering connection from #{@mu_name} to #{peer_obj.mu_name}", details: peer_params
-                else
-                  MU.log "Updating peering connection from #{@mu_name} to #{peer_obj.mu_name}", MU::NOTICE, details: peer_params
-                end
-                MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.create_or_update(@resource_group, @cloud_id, peer_name, peer_params)
-              end
             }
           end
 
           create_update
+        end
+
+        # Set up a peering connection with another Azure VPC
+        # @param peer_obj [MU::Cloud::Azure::VPC]: The VPC with which we should peer
+        # @param reverse [Boolean]: If true, invoke this method on the partner VPC to complete the peering connection from the other side
+        def peerWith(peer_obj, peer_cfg = {}, reverse: false)
+          ext_peerings = MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.list(@resource_group, @cloud_id)
+          peer_name = @mu_name+"-"+@config['name'].upcase+"-"+peer_obj.config['name'].upcase
+          peer_params = MU::Cloud::Azure.network(:VirtualNetworkPeering).new
+          peer_params.remote_virtual_network = peer_obj.cloud_desc
+          peer_cfg['allow_forwarded_traffic'] ||= false
+          peer_params.allow_forwarded_traffic = peer_cfg['allow_forwarded_traffic']
+          peer_cfg['allow_gateway_traffic'] ||= false
+          peer_params.allow_gateway_transit = peer_cfg['allow_gateway_traffic']
+
+          peer_params.allow_virtual_network_access = true
+
+          need_update = true
+          exists = false
+          ext_peerings.each { |ext_peering|
+            if ext_peering.remote_virtual_network.id == peer_obj.cloud_desc.id
+              exists = true
+              need_update = (ext_peering.allow_forwarded_traffic != peer_params.allow_forwarded_traffic or ext_peering.allow_gateway_transit != peer_params.allow_gateway_transit)
+            end
+          }
+
+          if need_update
+            if !exists
+              MU.log "Creating peering connection from #{@mu_name} to #{peer_obj.mu_name}", details: peer_params
+            else
+              MU.log "Updating peering connection from #{@mu_name} to #{peer_obj.mu_name}", MU::NOTICE, details: peer_params
+            end
+            MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.create_or_update(@resource_group, @cloud_id, peer_name, peer_params)
+          end
+
+          if reverse
+            peer_obj.peerWith(self)
+          end
         end
 
         # Describe this VPC
