@@ -856,8 +856,8 @@ MAIL_HEAD_END
     # @param resource [MU::Cloud]: The server or other MU::Cloud resource object for which to generate or return the cert
     # @param poolname [Boolean]: If true, generate certificates for the base name of the server pool of which this node is a member, rather than for the individual node
     # @param keysize [Integer]: The size of the private key to use when generating this certificate
-    def nodeSSLCerts(resource, poolname = false, keysize = 4096)
-      _nat_ssh_key, _nat_ssh_user, _nat_ssh_host, canonical_ip, _ssh_user, _ssh_key_name = resource.getSSHConfig if resource.respond_to?(:getSSHConfig)
+    def nodeSSLCerts(resource, poolname = false, keysize = 4096, include_ip: true)
+      canonical_ip = resource.getSSHConfig[3] if include_ip and resource.respond_to?(:getSSHConfig)
 
       deploy_id = resource.deploy_id || @deploy_id || resource.deploy.deploy_id
 
@@ -877,10 +877,10 @@ MAIL_HEAD_END
         cert, pfx_cert = MU::Master::SSL.getCert(cert_cn, "/CN=#{cert_cn}/O=Mu/C=US", sans: sans, pfx: is_windows)
         results[cert_cn] = [key, cert]
 
-        winrm_cert = nil
+        winrm_cert = winrm_pfx_cert = nil
         if is_windows
           winrm_key = MU::Master::SSL.getKey(cert_cn+"-winrm", keysize: keysize)
-          winrm_cert = MU::Master::SSL.getCert(cert_cn+"-winrm", "/CN=#{resource.config['windows_admin_username']}/O=Mu/C=US", sans: ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"], pfx: true)[0]
+          winrm_cert, winrm_pfx_cert = MU::Master::SSL.getCert(cert_cn+"-winrm", "/CN=#{resource.config['windows_admin_username']}/O=Mu/C=US", sans: ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"], pfx: true)
           results[cert_cn+"-winrm"] = [winrm_key, winrm_cert]
         end
 
@@ -889,9 +889,19 @@ MAIL_HEAD_END
 
           cloudclass.writeDeploySecret(self, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
           cloudclass.writeDeploySecret(self, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])
-          if pfx_cert
-            cloudclass.writeDeploySecret(self, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+          if pfx_cert 
+            if resource.config['cloud'] == "Azure"
+              jsoncert = JSON.generate({
+                "data" => Base64.strict_encode64(winrm_pfx_cert.to_der),
+                "dataType" => "pfx",
+                "password" => ""
+              })
+              cloudclass.writeDeploySecret(self, Base64.strict_encode64(jsoncert), cert_cn+"-winrm.pfx", credentials: resource.config['credentials'])
+            else
+              cloudclass.writeDeploySecret(self, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+            end
           end
+
           if winrm_cert
             cloudclass.writeDeploySecret(self, winrm_cert.to_pem, cert_cn+"-winrm.crt", credentials: resource.config['credentials'])
           end

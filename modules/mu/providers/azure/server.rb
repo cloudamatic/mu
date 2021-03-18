@@ -264,7 +264,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          create_update
+          create_update(true)
 
           MU::MommaCat.lock(@cloud_id.to_s+"-groom")
           
@@ -282,10 +282,7 @@ module MU
           end
 
           @groomer.saveDeployData
-if windows?
-MU.log "Windows grooms won't work until the Azure SDK for keyvault works, so we can put certificates somewhere WinRM understands", MU::WARN
-return
-end
+
           begin
             @groomer.run(purpose: "Full Initial Run", max_retries: 15)
           rescue MU::Groomer::RunError
@@ -774,7 +771,7 @@ end
           lun
         end
 
-        def create_update
+        def create_update(certs = false)
           ipcfg = MU::Cloud::Azure.network(:NetworkInterfaceIPConfiguration).new
           ipcfg.name = @mu_name
           ipcfg.private_ipallocation_method = MU::Cloud::Azure.network(:IPAllocationMethod)::Dynamic
@@ -843,16 +840,47 @@ end
           hw_obj = MU::Cloud::Azure.compute(:HardwareProfile).new
           hw_obj.vm_size = @config['size']
 
-          os_obj = MU::Cloud::Azure.compute(:OSProfile).new
-          if windows?
-#            winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
-#            winrm_listen.certificate_url = "goddamn stupid ass thing"
-#            winrm_listen.protocol = "https"
-#            winrm = MU::Cloud::Azure.compute(:WinRMConfiguration).new
-#            winrm.listeners = [winrm_listen]
+          svc_acct = @deploy.findLitterMate(type: "user", name: @config['name']+"user")
+          raise MuError, "Failed to locate service account #{@config['name']}user" if !svc_acct
 
-            win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
-#            win_obj.win_rm = winrm
+          MU::Cloud::Azure.grantDeploySecretAccess(svc_acct.cloud_desc, @deploy, credentials: @credentials)
+
+          os_obj = MU::Cloud::Azure.compute(:OSProfile).new
+          certs = @deploy.nodeSSLCerts(self, include_ip: false)
+
+          winrm_cert_url = nil
+          if certs
+
+            secret_desc = MU::Cloud::Azure.getVaultSecret(@deploy, @mu_name+"-winrm.pfx", @config['region'], credentials: @credentials)
+            winrm_cert_url = secret_desc.id
+            vault_desc = MU::Cloud::Azure.getDeployVault(@deploy, @config['region'], credentials: @credentials)
+            secrets_obj = MU::Cloud::Azure.compute(:VaultSecretGroup).new
+
+            sub_res =  MU::Cloud::Azure.compute(:SubResource).new
+            sub_res.id = vault_desc.id
+            secrets_obj.source_vault = sub_res
+
+            vault_cert =  MU::Cloud::Azure.compute(:VaultCertificate).new
+
+            vault_cert.certificate_url = winrm_cert_url
+            vault_cert.certificate_store = "My"
+            secrets_obj.vault_certificates = [vault_cert]
+
+            os_obj.secrets = [secrets_obj]
+          end
+
+          if windows?
+            if certs and winrm_cert_url and !@cloud_id
+              winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
+              winrm_listen.certificate_url = winrm_cert_url
+              winrm_listen.protocol = "https"
+              winrm = MU::Cloud::Azure.compute(:WinRMConfiguration).new
+              winrm.listeners = [winrm_listen]
+
+              win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
+              win_obj.win_rm = winrm
+MU.log "winrm", MU::NOTICE, details: winrm
+            end
             os_obj.windows_configuration = win_obj
             os_obj.admin_username = @config['windows_admin_username']
             os_obj.admin_password = begin
@@ -862,10 +890,10 @@ end
               @deploy.saveNodeSecret(@mu_name, pw, "windows_admin_password")
               pw
             end
-            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/)
+            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/) if !@cloud_id
           else
             os_obj.admin_username = @config['ssh_user']
-            os_obj.computer_name = @mu_name
+            os_obj.computer_name = @mu_name if !@cloud_id
             key_obj = MU::Cloud::Azure.compute(:SshPublicKey).new
             key_obj.key_data = @deploy.ssh_public_key
             key_obj.path = "/home/#{@config['ssh_user']}/.ssh/authorized_keys"
@@ -882,11 +910,10 @@ end
 
           vm_id_obj = MU::Cloud::Azure.compute(:VirtualMachineIdentity).new
           vm_id_obj.type = "UserAssigned"
-          svc_acct = @deploy.findLitterMate(type: "user", name: @config['name']+"user")
-          raise MuError, "Failed to locate service account #{@config['name']}user" if !svc_acct
           vm_id_obj.user_assigned_identities  = {
             svc_acct.cloud_desc.id => svc_acct.cloud_desc
           }
+
 
           vm_obj = MU::Cloud::Azure.compute(:VirtualMachine).new
           vm_obj.location = @config['region']
@@ -936,10 +963,14 @@ end
             }
           end
 
+          ext_desc = cloud_desc if @cloud_id
 
-if !@cloud_id
-# XXX actually guard this correctly
-          MU.log "Creating VM #{@mu_name}", details: vm_obj
+          if !@cloud_id
+            MU.log "Creating VM #{@mu_name}", details: vm_obj
+          else
+# XXX guard on whether we actually need an update
+            MU.log "Updating VM #{@mu_name}", MU::NOTICE, details: vm_obj
+          end
           begin
             vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)
@@ -949,7 +980,6 @@ if !@cloud_id
             end
             raise e
           end
-end
 
         end
 
