@@ -678,6 +678,7 @@ module MU
 
 # XXX machine credentials don't show the directory_id/tenant_id, which is a problem because we need it for some API calls. Perhaps: create a stub managed identity (which does show it) and authorize using it purely to extract the directory_id
 
+        az_env = ad_settings = nil
         if cfg and MU::Cloud::Azure.hosted?
           machine = MU::Cloud::Azure.get_metadata
           az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
@@ -696,6 +697,8 @@ module MU
             subscription_id: machine["compute"]["subscriptionId"],
             active_directory_settings: ad_settings
           }
+        else
+          az_env, ad_settings = endpointSettings
         end
 
         return nil if !cfg
