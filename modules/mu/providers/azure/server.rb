@@ -849,11 +849,12 @@ end
           MU::Cloud::Azure.grantDeploySecretAccess(svc_acct.cloud_desc, @deploy, credentials: @credentials)
 
           os_obj = MU::Cloud::Azure.compute(:OSProfile).new
+          certs = @deploy.nodeSSLCerts(self, include_ip: false)
 
           winrm_cert_url = nil
           if certs
-            @deploy.nodeSSLCerts(self)
-            secret_desc = MU::Cloud::Azure.getVaultSecret(@deploy, @mu_name+"-winrm.crt", @config['region'], credentials: @credentials)
+
+            secret_desc = MU::Cloud::Azure.getVaultSecret(@deploy, @mu_name+"-winrm.pfx", @config['region'], credentials: @credentials)
             winrm_cert_url = secret_desc.id
             vault_desc = MU::Cloud::Azure.getDeployVault(@deploy, @config['region'], credentials: @credentials)
             secrets_obj = MU::Cloud::Azure.compute(:VaultSecretGroup).new
@@ -872,7 +873,7 @@ end
           end
 
           if windows?
-            if certs and winrm_cert_url
+            if certs and winrm_cert_url and !@cloud_id
               winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
               winrm_listen.certificate_url = winrm_cert_url
               winrm_listen.protocol = "https"
@@ -881,6 +882,7 @@ end
 
               win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
               win_obj.win_rm = winrm
+MU.log "winrm", MU::NOTICE, details: winrm
             end
             os_obj.windows_configuration = win_obj
             os_obj.admin_username = @config['windows_admin_username']
@@ -891,10 +893,10 @@ end
               @deploy.saveNodeSecret(@mu_name, pw, "windows_admin_password")
               pw
             end
-            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/)
+            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/) if !@cloud_id
           else
             os_obj.admin_username = @config['ssh_user']
-            os_obj.computer_name = @mu_name
+            os_obj.computer_name = @mu_name if !@cloud_id
             key_obj = MU::Cloud::Azure.compute(:SshPublicKey).new
             key_obj.key_data = @deploy.ssh_public_key
             key_obj.path = "/home/#{@config['ssh_user']}/.ssh/authorized_keys"
@@ -964,10 +966,14 @@ end
             }
           end
 
+          ext_desc = cloud_desc if @cloud_id
 
-#if !@cloud_id
-# XXX actually guard this correctly
-          MU.log "Creating VM #{@mu_name}", details: vm_obj
+          if !@cloud_id
+            MU.log "Creating VM #{@mu_name}", details: vm_obj
+          else
+# XXX guard on whether we actually need an update
+            MU.log "Updating VM #{@mu_name}", MU::NOTICE, details: vm_obj
+          end
           begin
             vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)
@@ -977,7 +983,6 @@ end
             end
             raise e
           end
-#end
 
         end
 

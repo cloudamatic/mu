@@ -534,7 +534,7 @@ module MU
         items = MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secret_versions_async(vault_desc.properties.vault_uri, realname).value!.body.value
 
         if items.empty?
-          raise MissingVaultSecret.new, "KeyVaultSecret #{realname} not found in vault #{vault_desc.name}", details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(vault_desc.properties.vault_uri).value!.body.value
+          raise MissingVaultSecret.new "KeyVaultSecret #{realname} not found in vault #{vault_desc.name}", details: MU::Cloud::Azure.keyvault_items(credentials: credentials).get_secrets_async(vault_desc.properties.vault_uri).value!.body.value.map { |i| i.id }
         end
         items.last
       end
@@ -559,9 +559,11 @@ module MU
           next if !vault_desc
           vault_url = vault_desc.properties.vault_uri
 
-          MU.log "Writing #{name} to KeyVault #{vault_desc.name}", MU::NOTICE, details: value
-          MU.retrier([Faraday::ConnectionFailed, MissingVaultSecret], wait: 5, max: 6) {
-            MU::Cloud::Azure.keyvault_items(credentials: credentials).set_secret(vault_url, name, value)
+          MU.log "Writing #{name} to KeyVault #{vault_desc.name}"
+          MU.retrier([Faraday::ConnectionFailed], wait: 5, max: 6) {
+            MU::Cloud::Azure.keyvault_items(credentials: credentials).set_secret(vault_url, name, value.to_s)
+          }
+          MU.retrier([MissingVaultSecret], wait: 5, max: 6) {
             resp = getVaultSecret(deploy, name, r, credentials: credentials)
             return resp if region
           }
@@ -1317,8 +1319,8 @@ module MU
           aoe_orig = Thread.abort_on_exception
           Thread.abort_on_exception = false
           @wrapper_semaphore.synchronize {
-            return @wrappers[method_sym] if @wrappers[method_sym]
-          }
+            return @wrappers[method_sym] if @wrappers[method_sym] and arguments.nil?
+          } 
           # there's a low-key race condition here, but it's harmless and I'm
           # trying to pin down an odd deadlock condition on cleanup calls
           if !arguments.nil? and arguments.size == 1
@@ -1330,7 +1332,7 @@ module MU
           end
           deep_retval = ClientCallWrapper.new(retval, method_sym.to_s, self)
           @wrapper_semaphore.synchronize {
-            @wrappers[method_sym] ||= deep_retval
+            @wrappers[method_sym] = deep_retval
           }
           Thread.abort_on_exception = aoe_orig
           return @wrappers[method_sym]
@@ -1354,6 +1356,7 @@ module MU
           # @param arguments [Array]
           def method_missing(method_sym, *arguments)
             MU.log "Calling #{@parentname}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
+
             retries = 0
             begin
               if !arguments.nil? and arguments.size == 1

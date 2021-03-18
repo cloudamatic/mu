@@ -889,18 +889,21 @@ MAIL_HEAD_END
 
           cloudclass.writeDeploySecret(self, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
           cloudclass.writeDeploySecret(self, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])
-          if pfx_cert
-            cloudclass.writeDeploySecret(self, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+          if pfx_cert 
+            if resource.config['cloud'] == "Azure"
+              jsoncert = JSON.generate({
+                "data" => Base64.strict_encode64(winrm_pfx_cert.to_der),
+                "dataType" => "pfx",
+                "password" => ""
+              })
+              cloudclass.writeDeploySecret(self, Base64.strict_encode64(jsoncert), cert_cn+"-winrm.pfx", credentials: resource.config['credentials'])
+            else
+              cloudclass.writeDeploySecret(self, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+            end
           end
+
           if winrm_cert
             cloudclass.writeDeploySecret(self, winrm_cert.to_pem, cert_cn+"-winrm.crt", credentials: resource.config['credentials'])
-            jsoncert = JSON.generate({
-              "data" => Base64.strict_encode64(File.read(MU.dataDir+"/ssl/"+cert_cn+"-winrm.pfx")),
-#              "data" => Base64.strict_encode64(winrm_pfx_cert.to_der),
-              "dataType" => "pfx",
-              "password" => ""
-            })
-            cloudclass.writeDeploySecret(self, jsoncert, cert_cn+"-winrm.pfx.json", credentials: resource.config['credentials'])
           end
         end
 
