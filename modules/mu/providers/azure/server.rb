@@ -282,10 +282,7 @@ module MU
           end
 
           @groomer.saveDeployData
-if windows?
-MU.log "Windows grooms won't work until the Azure SDK for keyvault works, so we can put certificates somewhere WinRM understands", MU::WARN
-return
-end
+
           begin
             @groomer.run(purpose: "Full Initial Run", max_retries: 15)
           rescue MU::Groomer::RunError
