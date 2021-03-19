@@ -393,9 +393,14 @@ module MU
         }
       end
 
+      # Our credentials could be a Managed Service Identity, or an Enterprise
+      # Application Service Principal. Find it, figure out which, and return
+      # the appropriate cloud descriptor.
+      # @param credentials [String]
       def self.myServiceAccount(credentials)
         cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
-        MU::Cloud::Azure.serviceaccts(credentials: credentials).user_assigned_identities.list_by_subscription().select { |svc_acct|
+MU.log "some creds", MU::WARN, details: cred_hash
+        acct = MU::Cloud::Azure.serviceaccts(credentials: credentials).user_assigned_identities.list_by_subscription().select { |svc_acct|
           (
             svc_acct.client_id == cred_hash[:client_id] and
             svc_acct.id =~ /subscriptions\/#{Regexp.quote(cred_hash[:subscription_id])}\//
@@ -420,6 +425,7 @@ module MU
         sku.name = "standard" # ...I'm angry about this
 
         props = MU::Cloud::Azure.keyvault(:VaultProperties).new
+        cred_hash[:tenant_id] ||= my_svc_acct.tenant_id if my_svc_acct
         props.tenant_id = cred_hash[:tenant_id] # token credentials don't set this, because of course they don't
         props.tenant_id ||= credConfig(credentials)["directory_id"]
         if !props.tenant_id
@@ -441,8 +447,14 @@ module MU
         my_perms.keys = ["all"]
         my_perms.secrets = ["all"]
         my_acl = MU::Cloud::Azure.keyvault(:AccessPolicyEntry).new
-        my_acl.object_id = my_svc_acct.principal_id
-        my_acl.tenant_id = my_svc_acct.tenant_id
+        if my_svc_acct
+          my_acl.object_id = my_svc_acct.principal_id
+          my_acl.tenant_id = my_svc_acct.tenant_id
+        else
+          pp cred_hash
+          my_acl.object_id = cred_hash[:client_id]
+          my_acl.tenant_id = props.tenant_id
+        end
         my_acl.permissions = my_perms
 
         acl_props = MU::Cloud::Azure.keyvault(:VaultAccessPolicyProperties).new
@@ -788,10 +800,8 @@ module MU
 # XXX machine credentials don't show the directory_id/tenant_id, which is a problem because we need it for some API calls. Perhaps: create a stub managed identity (which does show it) and authorize using it purely to extract the directory_id
 
         az_env = ad_settings = nil
-        if cfg and MU::Cloud::Azure.hosted?
-          machine = MU::Cloud::Azure.get_metadata
-          az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
-          resource_url = if endpoint == "vault"
+        resource_url = Proc.new {
+          if endpoint == "vault"
             az_env.key_vault_dns_suffix.sub(/^\./, "https://")
           elsif endpoint == "storage"
             az_env.key_vault_dns_suffix.sub(/^\./, "https://")
@@ -802,11 +812,15 @@ module MU
           else
             az_env.resource_manager_endpoint_url
           end
+        }
+        if cfg and MU::Cloud::Azure.hosted?
+          machine = MU::Cloud::Azure.get_metadata
+          az_env, ad_settings = endpointSettings(machine["compute"]["azEnvironment"])
 
-          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url })
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url.call() })
           if !token
             sleep 1
-            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url }, debug: true)
+            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2020-09-01", args: { "resource"=>resource_url.call() }, debug: true)
             raise MuError, "Failed to get machine oauth token" if !token
           end
 
@@ -819,7 +833,7 @@ module MU
             active_directory_settings: ad_settings
           }
         else
-          az_env, ad_settings = endpointSettings
+          az_env, ad_settings = endpointSettings(cfg['region'])
         end
 
         return nil if !cfg
@@ -845,7 +859,7 @@ module MU
           }
         end
         options[:active_directory_settings] = ad_settings
-        options[:base_url] = resource_url
+        options[:base_url] = resource_url.call()
 
         missing = []
         map.values.each { |v|
@@ -1146,6 +1160,42 @@ module MU
         return @@service_identity_api[credentials]
       end
 
+      # The Azure ManagedApplications API
+      # @param model [<Azure::Apis::ManagedApplications::Mgmt::V2018_06_01::Models>]: If specified, will return the class ::Azure::Apis::ManagedServiceIdentity::Mgmt::V2018_06_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.appaccts(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_06_01")
+        require 'azure_mgmt_managed_applications'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("ManagedApplications").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@app_identity_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ManagedApplications", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@app_identity_api[credentials]
+      end
+
+      # The Azure Web API, whatever that is
+      # @param model [<Azure::Apis::Web::Mgmt::V2020_09_01::Models>]: If specified, will return the class ::Azure::Apis::Web::Mgmt::V2020_09_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.web(model = nil, alt_object: nil, credentials: nil, model_version: "V2020_09_01")
+        require 'azure_mgmt_web'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Web").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@web_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Web", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@web_api[credentials]
+      end
+
       # The Azure Authorization API
       # @param model [<Azure::Apis::Authorization::Mgmt::V2015_07_01::Models>]: If specified, will return the class ::Azure::Apis::Authorization::Mgmt::V2015_07_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
@@ -1250,8 +1300,10 @@ module MU
       @@keyvault_api = {}
       @@keyvault_item_api = {}
       @@apis_api = {}
+      @@web_api = {}
       @@marketplace_api = {}
       @@service_identity_api = {}
+      @@app_identity_api = {}
 
       # Generic wrapper for connections to Azure APIs
       class SDKClient
@@ -1300,13 +1352,13 @@ module MU
               @cred_hash[:client_secret],
               @cred_hash[:active_directory_settings]
             )
-            az_env.resource_manager_endpoint_url
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
             begin
               modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{@subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
               @api.base_url = @cred_hash[:base_url] # XXX verify that this is even needed, as well as whether it's correct
-            rescue NameError
+            rescue NameError => e
+            pp e.inspect
               raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{path}\n#{modelpath}"
             end
           end
