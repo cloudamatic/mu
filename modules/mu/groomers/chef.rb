@@ -183,7 +183,7 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil)
+      def self.getSecret(vault: nil, item: nil, field: nil, cmdstring: false)
         loadChefLib
         loaded = nil
 
@@ -192,6 +192,9 @@ module MU
             loaded = ::ChefVault::Item.load(vault, item)
           rescue ::ChefVault::Exceptions::KeysNotFound
             raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist? Chef user: #{MU.chef_user}"
+          end
+          if cmdstring
+            return "knife vault show \"#{vault}\" \"#{item}\""
           end
         else
           # If we didn't ask for a particular item, list what we have.
@@ -218,8 +221,8 @@ module MU
       end
 
       # see {MU::Groomer::Chef.getSecret}
-      def getSecret(vault: nil, item: nil, field: nil)
-        self.class.getSecret(vault: vault, item: item, field: field)
+      def getSecret(vault: nil, item: nil, field: nil, cmdstring: false)
+        self.class.getSecret(vault: vault, item: item, field: field, cmdstring: cmdstring)
       end
 
       # Delete a Chef data bag / Vault

@@ -31,8 +31,16 @@ module MU
               field: @config['auth_vault']['password_field']
             )
           else
-            # Should we use random instead?
-            @config['password'] = complex ? Password.random(12..14) : Password.pronounceable(10..12)
+            begin
+              @config['password'] = @groomclass.getSecret(
+                vault: @mu_name,
+                item: "database_credentials",
+                field: "password"
+              )
+            rescue MuNoSuchSecret
+              MU.log "Generating a password for database #{@mu_name}"
+              @config['password'] = complex ? Password.random(12..14) : Password.pronounceable(10..12)
+            end
           end
         end
   

@@ -47,6 +47,20 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           create_update
+
+          if @config['init_databases']
+            found = MU::Cloud::Azure.sql(credentials: @credentials).databases.list_by_server(@resource_group, @mu_name).map { |d| d.name }
+            @config['init_databases'].each { |db|
+              if !found.include?(db)
+                db_obj = MU::Cloud::Azure.sql(:Database).new
+                db_obj.location = @config['region']
+
+                MU.log "Creating database #{db} in SQL instance #{@mu_name}"
+                MU::Cloud::Azure.sql(credentials: @credentials).databases.create_or_update(@resource_group, @mu_name, db, db_obj)
+              end
+            }
+
+          end
           MU.log "SQL Database #{@config['name']} is at #{cloud_desc.fully_qualified_domain_name}", MU::SUMMARY
         end
 
@@ -99,7 +113,9 @@ module MU
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
           base = MU.structToHash(cloud_desc)
+          @cloud_id = Id.new(cloud_desc.id) if !@cloud_id.is_a?(Id)
           base["cloud_id"] = @cloud_id.name
+base["passwowrd"] = "N][?JaGE]uu!CE"
           base.merge!(@config.to_h)
           base
         end
@@ -129,6 +145,13 @@ module MU
         def self.schema(_config)
           toplevel_required = []
           schema = {
+            "init_databases" => {
+              "type" => "array",
+              "description" => "Ensure the existence of one or more databases in this SQL instance",
+              "items" => {
+                "type" => "string"
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -139,6 +162,8 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(db, configurator)
           ok = true
+
+          db['master_user'] ||= "sqladmin"
 
           ok
         end
@@ -153,6 +178,7 @@ module MU
           server_obj.administrator_login = @config["master_user"]
           server_obj.administrator_login_password = @config["password"]
           server_obj.version = "12.0"
+
           resp = MU::Cloud::Azure.sql(credentials: @credentials).servers.create_or_update(@resource_group, @mu_name, server_obj)
           @cloud_id = Id.new(resp.id)
         end

@@ -339,19 +339,16 @@ module MU
             end
           end
 
+          private_ips, public_ips = getIPs
+          MU.log %Q{Server #{@config['name']} private IPs: #{private_ips.join(",")}#{!public_ips.empty? ? ", public IPs: "+public_ips.join(", ") : ""}}, MU::SUMMARY
+
+          if windows?
+            MU.log "Windows admin username is #{@config['windows_admin_username']}, password stored in #{@config['groomer']}. Retrieval command: #{@groomer.getSecret(vault: @mu_name, item: "windows_admin_password", cmdstring: true)}", MU::SUMMARY
+          end
+
           MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
         end
 
-        # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
-        # @param name [String]: The MU resource name of the server to use as the basis for this image.
-        # @param instance_id [String]: The cloud provider resource identifier of the server to use as the basis for this image.
-        # @param storage [Hash]: The storage devices to include in this image.
-        # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
-        # @param region [String]: The cloud provider region
-        # @param tags [Array<String>]: Extra/override tags to apply to the image.
-        # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Azure.listAZs.sample, credentials: nil)
-        end
 
         # Return the IP address that we, the Mu server, should be using to access
         # this host via the network. Note that this does not factor in SSH
@@ -364,23 +361,7 @@ module MU
             raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
           end
 
-          private_ips = []
-          public_ips = []
-
-          cloud_desc.network_profile.network_interfaces.each { |iface|
-            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
-            iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.to_s)
-            iface_desc.ip_configurations.each { |ipcfg|
-              private_ips << ipcfg.private_ipaddress
-              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
-                ip_id = Id.new(ipcfg.public_ipaddress.id)
-                ip_desc = MU::Cloud::Azure.network(credentials: @credentials).public_ipaddresses.get(@resource_group, ip_id.to_s)
-                if ip_desc
-                  public_ips << ip_desc.ip_address
-                end
-              end
-            }
-          }
+          private_ips, public_ips = getIPs
 
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
@@ -759,6 +740,39 @@ module MU
 
         private
 
+        def getIPs
+          private_ips = []
+          public_ips = []
+
+          cloud_desc.network_profile.network_interfaces.each { |iface|
+            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
+            iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.to_s)
+            iface_desc.ip_configurations.each { |ipcfg|
+              private_ips << ipcfg.private_ipaddress
+              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
+                ip_id = Id.new(ipcfg.public_ipaddress.id)
+                ip_desc = MU::Cloud::Azure.network(credentials: @credentials).public_ipaddresses.get(@resource_group, ip_id.to_s)
+                if ip_desc
+                  public_ips << ip_desc.ip_address
+                end
+              end
+            }
+          }
+
+          [private_ips, public_ips]
+        end
+
+        # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
+        # @param name [String]: The MU resource name of the server to use as the basis for this image.
+        # @param instance_id [String]: The cloud provider resource identifier of the server to use as the basis for this image.
+        # @param storage [Hash]: The storage devices to include in this image.
+        # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
+        # @param region [String]: The cloud provider region
+        # @param tags [Array<String>]: Extra/override tags to apply to the image.
+        # @return [String]: The cloud provider identifier of the new machine image.
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Azure.listAZs.sample, credentials: nil)
+        end
+
         def next_lun(ext_disks = cloud_desc(use_cache: false).storage_profile.data_disks)
           ext_disks ||= []
           used_luns = ext_disks.map { |d| d.lun } # XXX ...probably
@@ -888,6 +902,9 @@ MU.log "winrm", MU::NOTICE, details: winrm
             rescue MU::MommaCat::SecretError
               pw = MU.generateWindowsPassword
               @deploy.saveNodeSecret(@mu_name, pw, "windows_admin_password")
+              if @groomer
+                @groomer.saveSecret(vault: @mu_name, data: pw, item: "windows_admin_password")
+              end
               pw
             end
             os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/) if !@cloud_id

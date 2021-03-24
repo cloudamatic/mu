@@ -399,7 +399,7 @@ module MU
       # @param credentials [String]
       def self.myServiceAccount(credentials)
         cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
-MU.log "some creds", MU::WARN, details: cred_hash
+
         acct = MU::Cloud::Azure.serviceaccts(credentials: credentials).user_assigned_identities.list_by_subscription().select { |svc_acct|
           (
             svc_acct.client_id == cred_hash[:client_id] and

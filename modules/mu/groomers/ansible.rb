@@ -128,7 +128,7 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil)
+      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil, cmdstring: false)
         if vault.nil? or vault.empty?
           raise MuError, "Must call getSecret with at least a vault name"
         end
@@ -155,6 +155,7 @@ module MU
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
+          return cmd if cmdstring
           MU.log cmd
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON or YAML, return it
@@ -187,8 +188,8 @@ module MU
       end
 
       # see {MU::Groomer::Ansible.getSecret}
-      def getSecret(vault: nil, item: nil, field: nil)
-        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir)
+      def getSecret(vault: nil, item: nil, field: nil, cmdstring: false)
+        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir, cmdstring: cmdstring)
       end
 
       # Delete a Ansible data bag / Vault
