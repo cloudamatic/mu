@@ -135,7 +135,6 @@ module MU
           base = MU.structToHash(cloud_desc)
           @cloud_id = Id.new(cloud_desc.id) if !@cloud_id.is_a?(Id)
           base["cloud_id"] = @cloud_id.name
-base["passwowrd"] = "N][?JaGE]uu!CE"
           base.merge!(@config.to_h)
           base
         end
@@ -165,6 +164,12 @@ base["passwowrd"] = "N][?JaGE]uu!CE"
         def self.schema(_config)
           toplevel_required = []
           schema = {
+            "version" => {
+              "description" => "SQL Server version to create",
+              "type" => "string",
+              "default" => "12.0",
+              "enum" => ["12.0", "2.0"]
+            },
             "init_databases" => {
               "type" => "array",
               "description" => "Ensure the existence of one or more databases in this SQL instance",
@@ -217,7 +222,7 @@ base["passwowrd"] = "N][?JaGE]uu!CE"
           server_obj.location = @region
           server_obj.administrator_login = @config["master_user"]
           server_obj.administrator_login_password = @config["password"]
-          server_obj.version = "12.0"
+          server_obj.version = @config['version']
 
           resp = MU::Cloud::Azure.sql(credentials: @credentials).servers.create_or_update(@resource_group, @mu_name, server_obj)
           @cloud_id = Id.new(resp.id)
