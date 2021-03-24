@@ -281,6 +281,16 @@ module MU
             end
           end
 
+          private_ips, public_ips = getIPs
+
+          if @dependencies.has_key?("database")
+            @dependencies['database'].values.each { |db|
+              [private_ips, public_ips].flatten.each { |ip|
+                db.allowHost(ip)
+              }
+            }
+          end
+
           @groomer.saveDeployData
 
           begin
@@ -339,7 +349,6 @@ module MU
             end
           end
 
-          private_ips, public_ips = getIPs
           MU.log %Q{Server #{@config['name']} private IPs: #{private_ips.join(",")}#{!public_ips.empty? ? ", public IPs: "+public_ips.join(", ") : ""}}, MU::SUMMARY
 
           if windows?

@@ -59,9 +59,29 @@ module MU
                 MU::Cloud::Azure.sql(credentials: @credentials).databases.create_or_update(@resource_group, @mu_name, db, db_obj)
               end
             }
-
           end
+
+          if @config['allow_ips']
+            @config['allow_ips'].each { |ip_range|
+              allowHost(ip_range['start_ip'], end_ip: ip_range['end_ip'])
+            }
+          end
+
           MU.log "SQL Database #{@config['name']} is at #{cloud_desc.fully_qualified_domain_name}", MU::SUMMARY
+        end
+
+        def allowHost(start_ip, end_ip: nil)
+          end_ip ||= start_ip
+          found = Hash[MU::Cloud::Azure.sql(credentials: @credentials).firewall_rules.list_by_server(@resource_group, @mu_name).map { |r| [r.start_ip_address, r.end_ip_address] }]
+
+          if found[start_ip] != end_ip
+            rule_obj = MU::Cloud::Azure.sql(:FirewallRule).new
+            rule_obj.location = @config['region']
+            rule_obj.start_ip_address = start_ip
+            rule_obj.end_ip_address = end_ip
+            MU.log "Allowing #{start_ip}-#{end_ip} access to SQL database #{@mu_name}"
+            MU::Cloud::Azure.sql(credentials: @credentials).firewall_rules.create_or_update(@resource_group, @mu_name, start_ip.gsub(/\./, "_"), rule_obj)
+          end
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -150,6 +170,26 @@ base["passwowrd"] = "N][?JaGE]uu!CE"
               "description" => "Ensure the existence of one or more databases in this SQL instance",
               "items" => {
                 "type" => "string"
+              }
+            },
+            "allow_ips" => {
+              "type" => "array",
+              "description" => "Add IP addresses or ranges to the allow list for this Azure SQL instance",
+              "items" => {
+                "type" => "object",
+                "required" => ["start_ip"],
+                "properties" => {
+                  "start_ip" => {
+                    "type" => "string",
+                    "description" => "IP address, or start of a range of IP addresses, to allow",
+                    "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+                  },
+                  "end_ip" => {
+                    "type" => "string",
+                    "description" => "End of a range of IP addresses to allow",
+                    "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+                  }
+                }
               }
             }
           }

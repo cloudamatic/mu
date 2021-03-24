@@ -21,7 +21,7 @@ module MU
     class Database
 
       # Getting the password for a database's master user, and saving it in a database / cluster specific vault
-      # @param complex [Boolean]: When generating passwords, use {Password.random} instead of {Password.pronounceable}
+      # @param complex [Boolean]: When generating passwords, use {Password}.random} instead of {Password}.pronounceable
       def getPassword(complex: false)
         if @config['password'].nil?
           if @config['auth_vault'] && !@config['auth_vault'].empty?
