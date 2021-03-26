@@ -216,7 +216,7 @@ module MU
         private
 
         def create_update
-          getPassword(complex: true) # generate or retrieve from secure storage as applicable
+          getPassword(complex: true, reject_pattern: /["']/) # generate or retrieve from secure storage as applicable
 
           server_obj = MU::Cloud::Azure.sql(:Server).new
           server_obj.location = @region

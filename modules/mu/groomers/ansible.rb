@@ -318,6 +318,7 @@ module MU
 
         if @server.config['run_list'] and !@server.config['run_list'].empty?
           play["roles"] = @server.config['run_list']
+          play["roles"].uniq!
         end
 
         if @server.config['ansible_vars']
@@ -632,6 +633,10 @@ module MU
         }
 
         if @server.config['run_list']
+          if @server.config['groomer_autofetch'] and @server.windows? and
+             !@server.config['run_list'].include?("ansible.windows")
+            system(%Q{#{@ansible_execs}/ansible-galaxy}, "--roles-path", roledir, "install", "ansible.windows")
+          end
           @server.config['run_list'].each { |role|
             found = false
             if !File.exist?(roledir+"/"+role)

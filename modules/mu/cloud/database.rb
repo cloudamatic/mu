@@ -22,7 +22,7 @@ module MU
 
       # Getting the password for a database's master user, and saving it in a database / cluster specific vault
       # @param complex [Boolean]: When generating passwords, use {Password}.random} instead of {Password}.pronounceable
-      def getPassword(complex: false)
+      def getPassword(complex: false, reject_pattern: nil)
         if @config['password'].nil?
           if @config['auth_vault'] && !@config['auth_vault'].empty?
             @config['password'] = @groomclass.getSecret(
@@ -37,9 +37,11 @@ module MU
                 item: "database_credentials",
                 field: "password"
               )
-            rescue MuNoSuchSecret
+            rescue MU::Groomer::MuNoSuchSecret
               MU.log "Generating a password for database #{@mu_name}"
-              @config['password'] = complex ? Password.random(12..14) : Password.pronounceable(10..12)
+              begin
+                @config['password'] = complex ? Password.random(12..14) : Password.pronounceable(10..12)
+              end while reject_pattern and @config['password'].match(reject_pattern)
             end
           end
         end
