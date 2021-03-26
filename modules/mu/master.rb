@@ -797,6 +797,7 @@ module MU
       nagios_threads = []
       nagios_threads << Thread.new {
         MU.dupGlobals(parent_thread_id)
+        Thread.current.thread_variable_set("syncMonitoringConfig", "<main>")
         realhome = Etc.getpwnam("nagios").dir
         [NAGIOS_HOME, "#{NAGIOS_HOME}/.ssh"].each { |dir|
           Dir.mkdir(dir, 0711) if !Dir.exist?(dir)
@@ -839,6 +840,7 @@ module MU
                     MU.dupGlobals(parent_thread_id)
                     threads << Thread.new {
                       MU::MommaCat.setThreadContext(deploy)
+                      Thread.current.thread_variable_set("syncMonitoringConfig",server.mu_name)
                       MU.log "Adding #{server.mu_name} to #{NAGIOS_HOME}/.ssh/config", MU::DEBUG
                       MU::Master.addHostToSSHConfig(
                           server,

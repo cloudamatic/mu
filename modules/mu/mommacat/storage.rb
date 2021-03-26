@@ -179,6 +179,7 @@ module MU
     # return [false, nil]
     def self.lock(id, nonblock = false, global = false, retries: 0, deploy_id: MU.deploy_id)
       raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
+      called_by = caller[0]
 
       if !global
         lockdir = "#{deploy_dir(deploy_id)}/locks"
@@ -200,6 +201,10 @@ module MU
         @locks[Thread.current.object_id][id] = File.open("#{lockdir}/#{id}.lock", File::CREAT|File::RDWR, 0600)
       }
 
+      thr_to_s = Proc.new { |t|
+        "#{t.object_id} (#{t.thread_variables.map { |v| "#{v.to_s}: #{t.thread_variable_get(v).to_s}" }.join(", ")})"
+      }
+
       MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG, details: caller
       show_relevant = Proc.new {
         @lock_semaphore.synchronize {
@@ -208,7 +213,7 @@ module MU
               if lockid == id
                 thread = Thread.list.select { |t| t.object_id == thread_id }.first
                 if thread.object_id != Thread.current.object_id
-                  MU.log "#{thread_id} sitting on #{id} (#{thread.thread_variables.map { |v| "#{v.to_s}: #{thread.thread_variable_get(v).to_s}" }.join(", ")})", MU::WARN, thread.backtrace
+                  MU.log "Thread #{thr_to_s.call(thread)} sitting on #{id}, which is needed by #{thr_to_s.call(Thread.current)} at #{called_by}", MU::WARN, thread.backtrace
                 end
               end
             }
@@ -585,7 +590,7 @@ module MU
           orig_cfg = findResourceConfig(type, res_name)
 
           if orig_cfg.nil?
-            MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
+            MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name}, seen in cached deployment.json for #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
             next
           end
 
