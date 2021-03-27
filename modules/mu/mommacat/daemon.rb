@@ -213,6 +213,7 @@ module MU
         need_reload = false
         @cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
+          Thread.current.thread_variable_set("cleanTerminatedInstances", deploy_id)
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
           purged_this_deploy = 0
             MU.log "#{deploy_id} has some kittens in it", loglevel, details: deploy.kittens.keys
@@ -225,7 +226,8 @@ module MU
                 servers.each_pair { |mu_name, server|
                   server.describe
                   if !server.cloud_id
-                    MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
+                    MU.log "Checking for presence of instance '#{mu_name}', but unable to fetch its cloud_id", MU::WARN, server.class.name
+                    pp servers.keys
                   elsif !server.active?
                     next if File.exist?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
                     deletia << mu_name

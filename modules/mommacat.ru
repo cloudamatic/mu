@@ -417,12 +417,14 @@ app = proc do |env|
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
           MU.log "add_volume request", MU::NOTICE, details: params
+          Thread.current.thread_variable_set("addVolume", req["mu_instance_id"])
           instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"
         end
       elsif !instance.nil?
         if !req["mu_bootstrap"].nil?
+          Thread.current.thread_variable_set("groomRequest", req["mu_instance_id"])
           kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
           returnval[2] = ["Grooming asynchronously, check Momma Cat logs on the master for details."]
         else
