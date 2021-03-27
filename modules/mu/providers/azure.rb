@@ -376,6 +376,10 @@ module MU
         sample
       end
 
+      def self.nameVault(deploy, region)
+        deploy.getResourceName("", max_length: 23, disallowed_chars: /[^a-z0-9]/i, use_unique_string: region.sub(/^usgov/i, '').slice(0,4).upcase, need_unique_string: true)
+      end
+
       # Do cloud-specific deploy instantiation tasks, such as copying SSH keys
       # around, sticking secrets in buckets, creating resource groups, etc
       # @param deploy [MU::MommaCat]
@@ -419,7 +423,8 @@ module MU
         cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
         my_svc_acct = myServiceAccount(credentials)
 
-        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+#        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        vaultname = nameVault(deploy, region)
         MU::Cloud::Azure.ensureProvider("Microsoft.KeyVault", credentials: credentials)
         sku = MU::Cloud::Azure.keyvault(:Sku).new
         sku.name = "standard" # ...I'm angry about this
@@ -528,7 +533,8 @@ module MU
       def self.getDeployVault(deploy, region, credentials: nil)
         deploy_id = deploy.deploy_id
         rg = deploy_id+"-"+region.upcase
-        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+#        vaultname = deploy.getResourceName(deploy.deploy_id, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        vaultname = nameVault(deploy, region)
         MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
       end
 

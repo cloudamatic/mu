@@ -194,35 +194,47 @@ module MU
           else
             ""
           end
-        else
-          "-"
         end
       end
+      subchar ||= "-"
 
-      if disallowed_chars
-        basename.gsub!(disallowed_chars, subchar) if disallowed_chars
-      end
+      basename.gsub!(disallowed_chars, subchar) if disallowed_chars
+
       attempts = 0
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
-          if basename == @appname.upcase + "-" + @seed.upcase + "-" + name.upcase
+          if basename == @appname.upcase + subchar + @seed.upcase + subchar + name.upcase
             # If we've run out of stuff to strip, truncate what's left and
             # just leave room for the deploy seed and uniqueness string. This
             # is the bare minimum, and probably what you'll see for most Windows
             # hostnames.
-            basename = name.upcase + "-" + @appname.upcase
+            basename = name.upcase + subchar + @appname.upcase
             basename.slice!((max_length-(reserved+3))..basename.length)
             basename.sub!(/-$/, "")
-            basename = basename + "-" + @seed.upcase
+            basename = basename + subchar + @seed.upcase
             basename.gsub!(disallowed_chars, subchar) if disallowed_chars
           else
             # If we have to strip anything, assume we've lost uniqueness and
             # will have to compensate with #genUniquenessString.
-            need_unique_string = true if !never_gen_unique
-            reserved = 4
-            basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
-            basename = basename + "-" + @seed.upcase + "-" + name.upcase
+            if !never_gen_unique
+              need_unique_string = true
+              reserved = 4
+            end
+            overrun = (basename.length + reserved) - max_length
+
+            if overrun <= (name.length - 2) and name.length > 2
+              basename = @appname.upcase + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + name.upcase.slice(0, name.length-overrun)
+            elsif overrun <= (@appname.length - 2) and @appname.length > 2
+              basename = @appname.upcase.slice(0, @appname.length-overrun) + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + name.upcase
+            elsif overrun <= (@appname.length + name.length - 4) and name.length > 2 and @appname.length > 2
+              appshort = @appname.slice(0, (overrun % 2 == 0) ? overrun/2 : (overrun-1)/2)
+              nameshort = name.slice(0, (overrun % 2 == 0) ? overrun/2 : (overrun+1)/2)
+              basename = appshort.upcase + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + nameshort.upcase
+            else
+              basename.sub!(/#{subchar}[^-]+#{subchar}#{@seed.upcase}#{subchar}#{Regexp.escape(name.upcase)}$/, "")
+              basename = basename + subchar + @seed.upcase + subchar + name.upcase
+            end
             basename.gsub!(disallowed_chars, subchar) if disallowed_chars
           end
         end
