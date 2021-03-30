@@ -4,11 +4,12 @@
 appname: smoketest
 us_only: true
 vpcs:
-- name: windows
+- name: win
   cloud: <%= cloud %>
 servers:
 - name: win2k16
   platform: win2k16
+  groomer: Ansible
   cloud: <%= cloud %>
 <% if cloud == "AWS" %>
   size: m4.large
@@ -18,7 +19,7 @@ servers:
   size: n1-standard-2
 <% end %>
   vpc:
-    name: windows
+    name: win
     subnet_pref: public
   associate_public_ip: true
   static_ip:
