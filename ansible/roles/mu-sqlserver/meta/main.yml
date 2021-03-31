@@ -1,6 +1,6 @@
 galaxy_info:
   author: John Stange
-  description: Windows baseline
+  description: Install and configure SQL Express
   company: eGlobalTech
 
   # If the issue tracker for your role is not on github, uncomment the
