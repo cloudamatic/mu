@@ -19,6 +19,11 @@
     name: openssh
     state: present
 
+- name: Install pstools
+  win_chocolatey:
+    name: pstools
+    state: present
+
 - name: "Tell EC2Config to set a random password on next boot (Windows 2012)"
   when: ((ansible_facts['distribution_major_version'] | int) < 10 and mu_build_image is defined and mu_build_image == True)
   win_copy:

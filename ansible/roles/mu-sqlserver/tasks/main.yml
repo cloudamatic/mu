@@ -1,12 +1,4 @@
 ---
-- name: Allow traffic to port 3389
-  win_shell: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-- name: Enable RDP
-  win_shell: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-
-- name: Allow local user authentication
-  win_shell: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
 
 - name: Check for existence of Sql Server Express
   win_shell: Get-ChildItem -Name "c:/Program Files/Microsoft SQL Server/MSSQL15.SQLEXPRESS"
@@ -25,11 +17,35 @@
     url: https://go.microsoft.com/fwlink/?linkid=866658
     dest: "c:/temp/sql-server-express.exe"
 
-# This doesn't work from win_shell, possibly because it spawns an external 
-# cmd.exe window. win_command seems to work.
-- name: Run SQL Server Express installer
+- name: Copy SQL Server installer batch wrapper
+  win_copy:
+    src: sqlinstall.bat
+    dest: "c:/temp/sqlinstall.bat"
+
+- name: Check for existing SQLInstaller scheduled task
+  win_shell: |
+    schtasks /query /tn "SQLInstaller" /fo list
+  ignore_errors: true
+  no_log: true
+  register: installer_task_exists
+
+- name: Create SQL Server installer schtask
+  when: installer_task_exists is failed
+  raw: "schtasks /create /tn \"SQLInstaller\" /tr C:\\temp\\sqlinstall.bat /sd 01/01/1901 /ST 00:00 /sc ONCE /ru \"{{ansible_user}}\" /rp \"{{ansible_password}}\" /RL HIGHEST"
+
+- name: Run SQL Server installer schtask now
   when: sqlserver_installed is failed
-  win_command: c:/temp/sql-server-express.exe /IACCEPTSQLSERVERLICENSETERMS /QUIET /ACTION=Install /HIDEPROGRESSBAR /VERBOSE
+  raw: "schtasks /run /tn \"SQLInstaller\""
+
+- name: Wait for SQL Server installer to finish
+  win_shell: |
+    $t = Get-ScheduledTask -TaskName SQLInstaller
+    if ($t.State -eq "Running") {
+      do {
+        Start-Sleep -Seconds 15
+        $t = Get-ScheduledTask -TaskName SQLInstaller
+      } while($t.State -eq "Running")
+    }
 
 - name: Allow port 1433 connectivity
   win_shell: New-NetFirewallRule -DisplayName "SQL Server" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action allow
@@ -38,7 +54,7 @@
 - name: Install Powershell NuGet provider
   win_shell: Install-PackageProvider -Name NuGet -Force -Confirm:$False
 
-- name: "Check for existence of SqlServer for Powershell"
+- name: "Check for existence of PowerShell SqlServer module"
   win_shell: |
     $ErrorActionPreference = "Stop"
     Import-Module SqlServer
