@@ -291,6 +291,39 @@ module MU
             }
           end
 
+          if @config['ingress_rules']
+            mySubnets.map { |s|
+              if s and s.cloud_desc.network_security_group
+                sg_id = Id.new(s.cloud_desc.network_security_group.id)
+                sg = MU::Cloud.resourceClass("Azure", "FirewallRule").find(cloud_id: sg_id).values.first
+                fw_obj = MU::MommaCat.findStray(
+                  "Azure",
+                  "firewall_rules",
+                  cloud_id: sg_id,
+                  dummy_ok: true
+                ).first
+                @config['ingress_rules'].each { |rule|
+                  fw_obj.addRule(
+                    rule["hosts"],
+                    proto: rule["proto"],
+                    port: rule["port"],
+                    egress: rule["egress"],
+                    port_range: rule["port_range"],
+                    sgs: rule["sgs"],
+                    lbs: rule["lbs"],
+                    deny: rule["deny"],
+                    weight: rule["weight"],
+                    description: @mu_name
+#                    oldrules: oldrules,
+#                    num: num
+                  )
+                }
+              end
+            }
+          end
+
+#        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535", sgs: [], lbs: [], deny: false, weight: nil, oldrules: nil, num: 0, description: "")
+
           @groomer.saveDeployData
 
           begin

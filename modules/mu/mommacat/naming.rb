@@ -223,7 +223,7 @@ module MU
               reserved = 4
             end
             overrun = (basename.length + reserved) - max_length
-puts overrun
+
             if overrun <= (name.length - 2) and name.length > 2 and !tried_right
               basename = @appname.upcase + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + name.upcase.slice(0, name.length-overrun)
               tried_right = true
