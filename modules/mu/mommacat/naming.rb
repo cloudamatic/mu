@@ -201,6 +201,7 @@ module MU
       basename.gsub!(disallowed_chars, subchar) if disallowed_chars
 
       attempts = 0
+      tried_left = tried_right = tried_both = false
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
@@ -223,14 +224,17 @@ module MU
             end
             overrun = (basename.length + reserved) - max_length
 
-            if overrun <= (name.length - 2) and name.length > 2
+            if overrun <= (name.length - 2) and name.length > 2 and !tried_right
               basename = @appname.upcase + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + name.upcase.slice(0, name.length-overrun)
-            elsif overrun <= (@appname.length - 2) and @appname.length > 2
+              tried_right = true
+            elsif overrun <= (@appname.length - 2) and @appname.length > 2 and !tried_left
               basename = @appname.upcase.slice(0, @appname.length-overrun) + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + name.upcase
-            elsif overrun <= (@appname.length + name.length - 4) and name.length > 2 and @appname.length > 2
+              tried_left = true
+            elsif overrun <= (@appname.length + name.length - 4) and name.length > 2 and @appname.length > 2 and !tried_both
               appshort = @appname.slice(0, (overrun % 2 == 0) ? overrun/2 : (overrun-1)/2)
               nameshort = name.slice(0, (overrun % 2 == 0) ? overrun/2 : (overrun+1)/2)
               basename = appshort.upcase + subchar + environment.upcase + subchar + @timestamp + subchar + @seed.upcase + subchar + nameshort.upcase
+              tried_both = true
             else
               basename.sub!(/#{subchar}[^-]+#{subchar}#{@seed.upcase}#{subchar}#{Regexp.escape(name.upcase)}$/, "")
               basename = basename + subchar + @seed.upcase + subchar + name.upcase

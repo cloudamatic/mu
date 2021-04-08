@@ -766,6 +766,7 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
         class Subnet < MU::Cloud::Azure::VPC
 
           attr_reader :cloud_id
+          attr_reader :parent
           attr_reader :id
           attr_reader :ip_block
           attr_reader :mu_name

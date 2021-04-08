@@ -1,0 +1,100 @@
+---
+
+- name: Check for existence of Sql Server Express
+  win_shell: Get-ChildItem -Name "c:/Program Files/Microsoft SQL Server/MSSQL15.SQLEXPRESS"
+  ignore_errors: true
+  no_log: true
+  register: sqlserver_installed
+
+- name: Ensure existence of c:/temp
+  win_file:
+    path: c:/temp
+    state: directory
+
+- name: Download SQL Server Express installer
+  when: sqlserver_installed is failed
+  win_get_url:
+    url: https://go.microsoft.com/fwlink/?linkid=866658
+    dest: "c:/temp/sql-server-express.exe"
+
+- name: Copy SQL Server installer batch wrapper
+  win_copy:
+    src: sqlinstall.bat
+    dest: "c:/temp/sqlinstall.bat"
+
+- name: Check for existing SQLInstaller scheduled task
+  win_shell: |
+    schtasks /query /tn "SQLInstaller" /fo list
+  ignore_errors: true
+  no_log: true
+  register: installer_task_exists
+
+- name: Create SQL Server installer schtask
+  when: installer_task_exists is failed
+  raw: "schtasks /create /tn \"SQLInstaller\" /tr C:\\temp\\sqlinstall.bat /sd 01/01/1901 /ST 00:00 /sc ONCE /ru \"{{ansible_user}}\" /rp \"{{ansible_password}}\" /RL HIGHEST"
+
+- name: Run SQL Server installer schtask now
+  when: sqlserver_installed is failed
+  raw: "schtasks /run /tn \"SQLInstaller\""
+
+- name: Wait for SQL Server installer to finish
+  win_shell: |
+    $t = Get-ScheduledTask -TaskName SQLInstaller
+    if ($t.State -eq "Running") {
+      do {
+        Start-Sleep -Seconds 15
+        $t = Get-ScheduledTask -TaskName SQLInstaller
+      } while($t.State -eq "Running")
+    }
+
+- name: Allow port 1433 connectivity
+  win_shell: New-NetFirewallRule -DisplayName "SQL Server" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action allow
+
+# XXX guard this
+- name: Install Powershell NuGet provider
+  win_shell: Install-PackageProvider -Name NuGet -Force -Confirm:$False
+
+- name: "Check for existence of PowerShell SqlServer module"
+  win_shell: |
+    $ErrorActionPreference = "Stop"
+    Import-Module SqlServer
+  ignore_errors: true
+  no_log: true
+  register: sqlserver_powershell_installed
+
+- name: Install PowerShell SqlServer module
+  win_shell: Install-Module -Name SqlServer -Force -Confirm:$False
+  when: sqlserver_powershell_installed is failed
+
+# XXX need a guard, somehow
+- name: "Enable TCP and named pipes in SQL Server"
+  win_shell: |
+    $ErrorActionPreference = "Stop"
+    [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.Smo")
+    [reflection.assembly]::LoadWithPartialName("Microsoft.SqlServer.SqlWmiManagement")
+    $smo = 'Microsoft.SqlServer.Management.Smo.'
+    $wmi = new-object ($smo + 'Wmi.ManagedComputer').
+    $Wmi
+    $uri = "ManagedComputer[@Name='" + (get-item env:\computername).Value + "']/ServerInstance[@Name='SQLEXPRESS']/ServerProtocol[@Name='Tcp']"
+    $Tcp = $wmi.GetSmoObject($uri)
+    $Tcp.IsEnabled = $true
+    $Tcp.Alter()
+    $Tcp
+    $uri = "ManagedComputer[@Name='" + (get-item env:\computername).Value + "']/ServerInstance[@Name='SQLEXPRESS']/ServerProtocol[@Name='Np']"
+    $Np = $wmi.GetSmoObject($uri)
+    $Np.IsEnabled = $true
+    $Np.Alter()
+    $Np
+    net stop "SQL Server (SQLEXPRESS)"
+    net start "SQL Server (SQLEXPRESS)"
+
+- name: Enable remote connections in SQL Server Express (even though they're really local connections)
+  win_shell: |
+    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "EXEC sys.sp_configure N'remote access', N'1'"
+    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "RECONFIGURE WITH OVERRIDE"
+
+
+- name: Install SQL Server Management Studio
+  win_chocolatey:
+    name: sql-server-management-studio
+    state: present
