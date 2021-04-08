@@ -549,8 +549,8 @@ module MU
     # @param triggering_node [MU::Cloud]: A cloud object calling this notify, usually on behalf of itself
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
-    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
-      no_write = (@no_artifacts or !caller.grep(/\/mommacat\.rb:\d+:in `notify'/).empty?)
+    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false, no_write: nil)
+      no_write ||= (@no_artifacts or !caller.grep(/\/mommacat\.rb:\d+:in `notify'/).empty?)
 
       begin
         if !no_write
@@ -831,7 +831,7 @@ MAIL_HEAD_END
         next if sibling.config.has_key?("groom") and !sibling.config["groom"]
         threads << Thread.new {
           Thread.abort_on_exception = true
-          Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
+          Thread.current.thread_variable_set("syncLitterThread", sibling.mu_name)
           MU.setVar("syncLitterThread", true)
           begin
             sibling.groomer.saveDeployData
