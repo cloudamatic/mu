@@ -976,12 +976,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [String]
         def getUnusedAddressBlock(exclude: [], max_bits: 28)
           used_ranges = exclude.map { |cidr| NetAddr::IPv4Net.parse(cidr) }
-          subnets.each { |s|
-            used_ranges << NetAddr::IPv4Net.parse(s.cloud_desc.ip_cidr_range)
-            if s.cloud_desc.secondary_ip_ranges
-              used_ranges.concat(s.cloud_desc.secondary_ip_ranges.map { |r| NetAddr::IPv4Net.parse(r.ip_cidr_range) })
-            end
-          }
+          used_ranges.concat(listSubnetRanges)
 # XXX sort used_ranges
           candidate = used_ranges.first.next_sib
 
@@ -1003,7 +998,51 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           candidate.to_s
         end
 
+        # Add a new secondary IP range to the given subnet, if it doesn't
+        # already exist
+        def addSecondaryRange(subnet, cidr, name)
+          subnet = getSubnet(cloud_id: subnet, name: subnet, subnet_mu_name: subnet)
+          if !subnet
+            raise MuError, "#{self.to_s} failed to locate a subnet from '#{subnet}'"
+          end
+
+          secondary_ranges = subnet.cloud_desc.secondary_ip_ranges
+          secondary_ranges ||= []
+          secondary_ranges.each { |r|
+            if r.ip_cidr_range == cidr and r.range_name == name
+              return
+            elsif r.ip_cidr_range == cidr or r.range_name == name
+              MU.log "Conflicting secondary IP range, cannot add #{name} (#{cidr}) to network #{cloud_desc.name} subnet #{subnet.cloud_desc.name}", MU::WARN, details: r
+              return
+            end
+          }
+
+          secondary_ranges << MU::Cloud::Google.compute(:SubnetworkSecondaryRange).new(
+            ip_cidr_range: cidr,
+            range_name: name
+          )
+          MU.log "Adding new secondary IP range #{name} (#{cidr}) to network #{cloud_desc.name} subnet #{subnet.cloud_desc.name}"
+          subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
+            name: subnet.cloud_desc.name,
+            secondary_ip_ranges: secondary_ranges,
+            fingerprint: subnet.cloud_desc.fingerprint
+          )
+          MU::Cloud::Google.compute(credentials: @credentials).patch_subnetwork(@project_id, subnet.az, subnet.cloud_desc.name, subnetobj)
+        end
+
         private
+
+        # @return [Array<NetAddr::IPv4Net>]
+        def listSubnetRanges
+          ranges = []
+          subnets.each { |s|
+            ranges << NetAddr::IPv4Net.parse(s.cloud_desc.ip_cidr_range)
+            if s.cloud_desc.secondary_ip_ranges
+              ranges.concat(s.cloud_desc.secondary_ip_ranges.map { |r| NetAddr::IPv4Net.parse(r.ip_cidr_range) })
+            end
+          }
+          ranges
+        end
 
         def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, _publicroute = true, credentials: nil)
           private_acl = {
@@ -1209,6 +1248,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # @return [Boolean]
           def private?
             @parent.cloud_desc 
+            if !@parent.routes
+              MU.log "Failed to retrieve routes from #{@parent.to_s}", MU::WARN
+              return true
+            end
             @parent.routes.map { |r|
               if r.dest_range == "0.0.0.0/0" and !r.next_hop_gateway.nil? and
                  (r.tags.nil? or r.tags.size == 0) and

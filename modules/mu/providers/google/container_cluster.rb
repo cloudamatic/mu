@@ -95,7 +95,7 @@ module MU
           desc = {
             :name => @mu_name.downcase,
             :description => @deploy.deploy_id,
-            :network => @vpc.cloud_id,
+            :network => @vpc.url,
             :enable_tpu => @config['tpu'],
             :resource_labels => labels,
             :locations => locations,
@@ -107,6 +107,7 @@ module MU
               :password => master_pw
             ),
           }
+
 
           if @config['kubernetes']
             desc[:addons_config] = MU::Cloud::Google.container(:AddonsConfig).new(
@@ -135,6 +136,8 @@ module MU
               end
             }
           end
+
+
           if @config['log_facility'] == "kubernetes"
             desc[:logging_service] = "logging.googleapis.com/kubernetes"
             desc[:monitoring_service] = "monitoring.googleapis.com/kubernetes"
@@ -183,6 +186,7 @@ module MU
             )
           end
 
+
           if @config['ip_aliases'] or @config['custom_subnet'] or
              @config['services_ip_block'] or @config['services_ip_block_name'] or
              @config['pod_ip_block'] or @config['pod_ip_block_name'] or
@@ -210,17 +214,26 @@ module MU
             end
 
             if @config['services_ip_block']
+              if @vpc.project_id != @project_id
+                alloc_desc[:services_secondary_range_name] ||= @config['name']+"-services"
+                @vpc.addSecondaryRange(desc[:subnetwork], @config['services_ip_block'], alloc_desc[:services_secondary_range_name])
+
+              end
               alloc_desc[:services_ipv4_cidr_block] = @config['services_ip_block']
             end
             if @config['tpu_ip_block']
               alloc_desc[:tpu_ipv4_cidr_block] = @config['tpu_ip_block']
             end
             if @config['pod_ip_block']
+              if @vpc.project_id != @project_id
+                alloc_desc[:cluster_secondary_range_name] ||= @config['name']+"-pods"
+                @vpc.addSecondaryRange(desc[:subnetwork], @config['pod_ip_block'], alloc_desc[:cluster_secondary_range_name])
+
+              end
               alloc_desc[:cluster_ipv4_cidr_block] = @config['pod_ip_block']
             end
 
             desc[:ip_allocation_policy] = MU::Cloud::Google.container(:IpAllocationPolicy).new(alloc_desc)
-            pp alloc_desc
           end
 
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
