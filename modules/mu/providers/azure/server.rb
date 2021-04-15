@@ -385,7 +385,7 @@ module MU
           MU.log %Q{Server #{@config['name']} private IPs: #{private_ips.join(",")}#{!public_ips.empty? ? ", public IPs: "+public_ips.join(", ") : ""}}, MU::SUMMARY
 
           if windows?
-            MU.log "Windows admin username is #{@config['windows_admin_username']}, password stored in #{@config['groomer']}. Retrieval command: #{@groomer.getSecret(vault: @mu_name, item: "windows_admin_password", cmdstring: true)}", MU::SUMMARY
+            MU.log "Windows admin username is #{@config['windows_admin_username']}, password stored in #{@config['groomer']}. Retrieval command:\n#{@groomer.getSecret(vault: @mu_name, item: "windows_admin_password", cmdstring: true)}", MU::SUMMARY
           end
 
           MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
