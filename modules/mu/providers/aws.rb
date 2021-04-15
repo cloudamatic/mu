@@ -44,6 +44,12 @@ module MU
         [cfg['account_number']]
       end
 
+      # Cloud-specific resource methods or attributes we want exposed for
+      # reading by {MU::Cloud}
+      def self.customAttrReaders
+        [:region, :cloudformation_data]
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
@@ -51,10 +57,6 @@ module MU
       # @param cloudobj [MU::Cloud]
       # @param _deploy [MU::MommaCat]
       def self.resourceInitHook(cloudobj, _deploy)
-        class << self
-          attr_reader :cloudformation_data
-          attr_reader :region
-        end
         return if !cloudobj
         cloudobj.instance_variable_set(:@cloudformation_data, {})
 

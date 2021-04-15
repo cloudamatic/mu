@@ -75,6 +75,7 @@ def loadMuConfig(default_cfg_overrides = nil)
       "chain" => "/opt/mu/var/ssl/Mu_CA.pem"
     },
     "mu_admin_email" => "root@localhost",
+    "disable_nagios" => false,
     "allow_invade_foreign_vpcs" => false,
     "mu_repo" => "cloudamatic/mu.git",
     "public_address" => Socket.gethostname || "localhost",

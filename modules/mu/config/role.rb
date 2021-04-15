@@ -28,7 +28,7 @@ module MU
             "name" => {
               "type" => "string",
               "description" => "The name of a cloud provider role to create",
-              "pattern" => '^[a-zA-Z0-9_\-]+$'
+              "pattern" => '^[a-zA-Z0-9_\-\.]+$'
             },
             "import" => {
               "type" => "array",

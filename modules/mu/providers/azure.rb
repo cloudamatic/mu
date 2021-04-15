@@ -56,6 +56,12 @@ module MU
         []
       end
 
+      # Cloud-specific resource methods or attributes we want exposed for
+      # reading by {MU::Cloud}
+      def self.customAttrReaders
+        [:region, :resource_group]
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
@@ -63,10 +69,6 @@ module MU
       # @param cloudobj [MU::Cloud]
       # @param deploy [MU::MommaCat]
       def self.resourceInitHook(cloudobj, deploy)
-        class << self
-          attr_reader :resource_group
-          attr_reader :region
-        end
         return if !cloudobj
 
         region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])

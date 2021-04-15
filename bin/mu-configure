@@ -184,6 +184,12 @@ $CONFIGURABLES = {
     "desc" => "Disable the Momma Cat grooming daemon. Nodes which require asynchronous Ansible/Chef bootstraps will not function. This option is only honored in gem-based installations.",
     "boolean" => true
   },
+  "disable_nagios" => {
+    "title" => "Disable Nagios",
+    "default" => false,
+    "desc" => "Disable Nagios monitoring",
+    "boolean" => true
+  },
   "adopt_change_notify" => {
     "title" => "Adoption Change Notifications",
     "subtree" => {

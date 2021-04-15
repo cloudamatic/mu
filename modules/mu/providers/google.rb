@@ -52,6 +52,12 @@ module MU
         [:url]
       end
 
+      # Cloud-specific resource methods or attributes we want exposed for
+      # reading by {MU::Cloud}
+      def self.customAttrReaders
+        [:project_id, :customer]
+      end
+
       # Is this a "real" cloud provider, or a stub like CloudFormation?
       def self.virtual?
         false
@@ -75,12 +81,6 @@ module MU
       # @param cloudobj [MU::Cloud]
       # @param deploy [MU::MommaCat]
       def self.resourceInitHook(cloudobj, deploy)
-        class << self
-          attr_reader :project_id
-          attr_reader :customer
-          # url is too complex for an attribute (we get it from the cloud API),
-          # so it's up in AdditionalResourceMethods instead
-        end
         return if !cloudobj
 
         cloudobj.instance_variable_set(:@customer, MU::Cloud::Google.customerID(cloudobj.config['credentials']))
@@ -95,9 +95,6 @@ module MU
         else
           cloudobj.instance_variable_set(:@project_id, cloudobj.config['project'])
         end
-
-# XXX @url? Well we're not likely to have @cloud_desc at this point, so maybe
-# that needs to be a generic-to-google wrapper like def url; cloud_desc.self_link;end
 
 # XXX something like: vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])
       end
@@ -1455,6 +1452,9 @@ MU.log e.message, MU::WARN, details: e.inspect
                 faked_args.pop
                 if get_method == :get_snapshot
                   faked_args.pop
+                  faked_args.pop
+                end
+                if method_sym == :patch_subnetwork
                   faked_args.pop
                 end
                 faked_args.push(cloud_id)

@@ -267,6 +267,11 @@ module MU
                 attr_reader :groomer
                 attr_reader :groomerclass
                 attr_accessor :mu_windows_name # XXX might be ok as reader now
+                if @cloudparentclass.respond_to?(:customAttrReaders)
+                  @cloudparentclass.customAttrReaders.each { |a|
+                    attr_reader a
+                  }
+                end
               end 
             end
             @tags["Name"] ||= @mu_name if @mu_name
