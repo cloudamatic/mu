@@ -983,7 +983,7 @@ MU.log "winrm", MU::NOTICE, details: winrm
           vm_obj.os_profile = os_obj
           vm_obj.identity = vm_id_obj
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
-          vm_obj.storage_profile.image_reference = img_obj
+          vm_obj.storage_profile.image_reference = img_obj if !@cloud_id
 
           image_desc = MU::Cloud::Azure::Server.fetchImage(@config['image_id'].to_s, credentials: @config['credentials'], region: @config['region'])
 # XXX do this as a catch around instance creation so we don't waste API calls
