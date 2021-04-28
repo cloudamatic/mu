@@ -161,6 +161,13 @@ module example.com/cloudfunction
                cloud_desc.event_trigger.resource != @config['triggers'].first['resource']
               need_update = true
             end
+          elsif !cloud_desc.https_trigger
+            need_update = true
+          end
+
+          if (@config['internal_only'] and cloud_desc.ingress_settings != "ALLOW_INTERNAL_ONLY") or
+             (!@config['internal_only'] and cloud_desc.ingress_settings != "ALLOW_ALL")
+            need_update = true
           end
 
           current = Dir.mktmpdir(@mu_name+"-current") { |dir|
@@ -330,6 +337,12 @@ module example.com/cloudfunction
           bok["handler"] = cloud_desc.entry_point
           bok["timeout"] = cloud_desc.timeout.gsub(/[^\d]/, '').to_i
 
+          if cloud_desc.ingress_settings and cloud_desc.ingress_settings == "ALLOW_INTERNAL_ONLY"
+            bok['internal_only'] = true
+          else
+            bok['internal_only'] = false
+          end
+
           if cloud_desc.vpc_connector
             bok["vpc_connector"] = cloud_desc.vpc_connector
           elsif cloud_desc.network
@@ -410,6 +423,11 @@ module example.com/cloudfunction
             "vpc_connector" => {
               "type" => "string",
               "description" => "+DEPRECATED+ VPC Connector to attach, of the form +projects/my-project/locations/some-region/connectors/my-connector+. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
+            },
+            "internal_only" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Permit only traffic from VPC networks in the same project or VPC SC perimeter"
             },
             "vpc_connector_allow_all_egress" => {
               "type" => "boolean",
@@ -629,6 +647,12 @@ module example.com/cloudfunction
             )
           else
             desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
+          end
+
+          if @config["internal_only"]
+            desc[:ingress_settings] = "ALLOW_INTERNAL_ONLY"
+          else
+            desc[:ingress_settings] = "ALLOW_ALL"
           end
 
 
