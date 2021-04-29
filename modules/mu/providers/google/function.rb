@@ -120,7 +120,7 @@ module example.com/cloudfunction
         def groom
           desc = {}
 
-          func_obj = buildDesc
+          func_obj = buildDesc(true)
 
           labels = Hash[@tags.keys.map { |k|
             [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
@@ -213,6 +213,7 @@ module example.com/cloudfunction
           end
 
           if need_update
+            MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
             MU.log "Updating Cloud Function #{@cloud_id}", MU::NOTICE, details: func_obj
             begin
               MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
@@ -460,6 +461,7 @@ module example.com/cloudfunction
           end
           
           if cloud_desc.source_archive_url
+puts cloud_desc.source_archive_url.bold+" to "+zipfile.bold
             cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
             bucket = Regexp.last_match[1]
             path = Regexp.last_match[2]
@@ -471,6 +473,7 @@ module example.com/cloudfunction
               return false
             end
           elsif cloud_desc.source_upload_url
+puts cloud_desc.source_upload_url.bold+" to "+zipfile.bold
             resp = MU::Cloud::Google.function(credentials: credentials).generate_function_download_url(
               function_id
             )
@@ -491,11 +494,13 @@ module example.com/cloudfunction
         # @return [String]: The Cloud Storage URL to the result
         def self.uploadPackage(zipfile, filename, credentials: nil)
           bucket = MU::Cloud::Google.adminBucketName(credentials)
+
           obj_obj = MU::Cloud::Google.storage(:Object).new(
             content_type: "application/zip",
             name: filename
           )
 
+          MU.log "Uploading #{zipfile} to #{bucket}/#{filename}"
           MU::Cloud::Google.storage(credentials: credentials).insert_object(
             bucket,
             obj_obj,
@@ -597,7 +602,7 @@ module example.com/cloudfunction
 
         private
 
-        def buildDesc
+        def buildDesc(no_upload = false)
           labels = Hash[@tags.keys.map { |k|
             [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
           ]
@@ -682,7 +687,12 @@ module example.com/cloudfunction
             else
               MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
             end
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+            bucket = MU::Cloud::Google.adminBucketName(credentials)
+
+            desc[:source_archive_url] = "gs://#{bucket}/#{@mu_name}-cloudfunction.zip"
+            if !no_upload
+              MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+            end
 
             if tempfile
               tempfile.close
