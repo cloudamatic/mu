@@ -243,6 +243,34 @@ module example.com/cloudfunction
             tempfile.unlink
           end
 
+          policy = MU::Cloud::Google.function(credentials: @credentials).get_project_location_function_iam_policy(@cloud_id)
+
+          if @config['allow_unauthenticated'] and !allowsUnauthencated?
+            policy ||= MU::Cloud::Google.function(:Policy).new(
+              bindings: []
+            )
+            policy.bindings ||= []
+            policy.bindings << MU::Cloud::Google.function(:Binding).new(
+              members: ["allUsers"],
+              role: "roles/cloudfunctions.invoker"
+            )
+
+            pol_req = MU::Cloud::Google.function(:SetIamPolicyRequest).new(
+              policy: policy
+            )
+            MU.log "Enabling anonymous invocation of Cloud Function #{@mu_name}", MU::NOTICE
+            MU::Cloud::Google.function(credentials: @credentials).set_function_iam_policy(@cloud_id, pol_req)
+          elsif !@config['allow_unauthenticated'] and allowsUnauthencated?
+            policy.bindings.reject! { |b|
+              b.members.include?("allUsers") and b.role == "roles/cloudfunctions.invoker"
+            }
+            pol_req = MU::Cloud::Google.function(:SetIamPolicyRequest).new(
+              policy: policy
+            )
+            MU.log "Disabling anonymous invocation of Cloud Function #{@mu_name}", MU::NOTICE
+            MU::Cloud::Google.function(credentials: @credentials).set_function_iam_policy(@cloud_id, pol_req)
+          end
+
         end
 
         # Return the metadata for this project's configuration
@@ -364,7 +392,7 @@ module example.com/cloudfunction
               type: "vpcs"
             )
           end
-
+          
           if cloud_desc.environment_variables and cloud_desc.environment_variables.size > 0
             bok['environment_variable'] = cloud_desc.environment_variables.keys.map { |k| { "key" => k, "value" => cloud_desc.environment_variables[k] } }
           end
@@ -386,6 +414,9 @@ module example.com/cloudfunction
           bok['code'] = {
             'zip_file' => codefile
           }
+
+
+          bok['allow_unauthenticated'] = allowsUnauthencated?
 
           bok
         end
@@ -425,6 +456,11 @@ module example.com/cloudfunction
               "type" => "string",
               "description" => "+DEPRECATED+ VPC Connector to attach, of the form +projects/my-project/locations/some-region/connectors/my-connector+. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
             },
+            "allow_unauthenticated" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Only applicable for HTTPS-triggered functions; allows function invocation without credentials"
+            },
             "internal_only" => {
               "type" => "boolean",
               "default" => false,
@@ -461,7 +497,6 @@ module example.com/cloudfunction
           end
           
           if cloud_desc.source_archive_url
-puts cloud_desc.source_archive_url.bold+" to "+zipfile.bold
             cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
             bucket = Regexp.last_match[1]
             path = Regexp.last_match[2]
@@ -473,7 +508,6 @@ puts cloud_desc.source_archive_url.bold+" to "+zipfile.bold
               return false
             end
           elsif cloud_desc.source_upload_url
-puts cloud_desc.source_upload_url.bold+" to "+zipfile.bold
             resp = MU::Cloud::Google.function(credentials: credentials).generate_function_download_url(
               function_id
             )
@@ -601,6 +635,18 @@ puts cloud_desc.source_upload_url.bold+" to "+zipfile.bold
         end
 
         private
+
+        def allowsUnauthencated?
+          policy = MU::Cloud::Google.function(credentials: @credentials).get_project_location_function_iam_policy(@cloud_id)
+          if policy and policy.bindings
+            policy.bindings.each { |b|
+              if b.members.include?("allUsers") and b.role == "roles/cloudfunctions.invoker"
+                return true
+              end
+            }
+          end
+          false
+        end
 
         def buildDesc(no_upload = false)
           labels = Hash[@tags.keys.map { |k|
