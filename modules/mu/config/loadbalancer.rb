@@ -461,6 +461,16 @@ module MU
             end
             lb["targetgroups"] << tg
           }
+        elsif lb['listeners'].nil?
+          # well ok, manufacture listeners out of targetgroups then?
+          lb['listeners'] ||= []
+          lb["targetgroups"].each { |tg|
+            lb['listeners'] << {
+              "targetgroup" => tg['name'],
+              "lb_protocol" => tg["proto"],
+              "lb_port" => tg["port"]
+            }
+          }
         else
           lb['listeners'].each { |l|
             found = false

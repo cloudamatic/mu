@@ -855,7 +855,7 @@ module MU
               raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
             end
             @loadbalancers.each { |lb|
-              lb.registerNode(@cloud_id)
+              lb.registerTarget(@cloud_id)
             }
           end
           MU.log %Q{Server #{@config['name']} private IP is #{@deploydata["private_ip_address"]}#{@deploydata["public_ip_address"] ? ", public IP is "+@deploydata["public_ip_address"] : ""}}, MU::SUMMARY

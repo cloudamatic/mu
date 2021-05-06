@@ -20,6 +20,7 @@ module MU
 
         @lb = nil
         attr_reader :targetgroups
+        attr_reader :is_lambda
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -163,7 +164,7 @@ module MU
           dnsthread = Thread.new {
             if !MU::Cloud::AWS.isGovCloud?
               MU.dupGlobals(parent_thread_id)
-              generic_mu_dns = MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+#              generic_mu_dns = MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
             end
           }
 
@@ -181,6 +182,7 @@ module MU
           end
 
           @targetgroups = {}
+          @is_lambda = false
           if !@config['healthcheck'].nil? and @config['classic']
             MU.log "Configuring custom health check for ELB #{@mu_name}", details: @config['healthcheck']
             MU::Cloud::AWS.elb(region: @region, credentials: @credentials).configure_health_check(
@@ -203,10 +205,13 @@ module MU
                   :protocol => tg['proto'],
                   :vpc_id => @vpc.cloud_id,
                   :port => tg['port'],
-                  :target_type  => 'instance'
+                  :target_type  => tg['target_type'] || "instance"
                 }
-                if tg['target_type'] && tg['target_type'] != 'instance'
-                  tg_descriptor[:target_type] = tg['target_type']
+                if tg['target_type'] == "lambda"
+                  @is_lambda = true
+                  tg_descriptor.delete(:protocol)
+                  tg_descriptor.delete(:port)
+                  tg_descriptor.delete(:vpc_id)
                 end
                 if tg['httpcode']
                   tg_descriptor[:matcher] = {
@@ -426,17 +431,19 @@ module MU
                 timeout = 0
                 MU.log "Disabling connection draining on #{lb.dns_name}"
               end
-              @targetgroups.values.each { |tg|
-                MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).modify_target_group_attributes(
-                  target_group_arn: tg.target_group_arn,
-                  attributes: [
-                    {
-                      key: "deregistration_delay.timeout_seconds",
-                      value: timeout.to_s
-                    }
-                  ]
-                )
-              }
+              if !@is_lambda
+                @targetgroups.values.each { |tg|
+                  MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).modify_target_group_attributes(
+                    target_group_arn: tg.target_group_arn,
+                    attributes: [
+                      {
+                        key: "deregistration_delay.timeout_seconds",
+                        value: timeout.to_s
+                      }
+                    ]
+                  )
+                }
+              end
             end
           end
 
@@ -644,15 +651,15 @@ module MU
 
         # Register a Server node with an existing LoadBalancer.
         #
-        # @param instance_id [String] A node to register.
+        # @param id [String] A node or function to register.
         # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
-        def registerNode(instance_id, targetgroups: nil)
+        def registerTarget(id, targetgroups: nil, type: "instance")
           if @config['classic'] or !@config.has_key?("classic")
-            MU.log "Registering #{instance_id} to ELB #{@cloud_id}"
+            MU.log "Registering #{id} to ELB #{@cloud_id}"
             MU::Cloud::AWS.elb(region: @region, credentials: @credentials).register_instances_with_load_balancer(
               load_balancer_name: @cloud_id,
               instances: [
-                {instance_id: instance_id}
+                {instance_id: id}
               ]
             )
           else
@@ -664,11 +671,11 @@ module MU
               targetgroups = @targetgroups.keys
             end
             targetgroups.each { |tg|
-              MU.log "Registering #{instance_id} to Target Group #{tg}"
+              MU.log "Registering #{id} to Target Group #{tg}"
               MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).register_targets(
                 target_group_arn: @targetgroups[tg].target_group_arn,
                 targets: [
-                  {id: instance_id}
+                  {id: id}
                 ]
               )
             }
@@ -834,7 +841,7 @@ module MU
                     "type" => "string",
                     "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
                   },
-                  "target_type " => {
+                  "target_type" => {
                     "type" => "string",
                     "enum" => ["instance", "ip", "lambda"],
                   }

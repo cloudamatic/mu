@@ -38,6 +38,11 @@ module MU
               "description" => "Triggers which will cause this function to be invoked."
             }
           },
+          "loadbalancers" => {
+            "type" => "array",
+            "minItems" => 1,
+            "items" => MU::Config::LoadBalancer.reference
+          },
           "handler" => {
             "type" => "string",
             "description" => "The function within your code that is should be called to begin execution. For Node.js, it is the module-name.export value in your function. For Java, it can be package.class-name::handler or package.class-name. For more information, see https://docs.aws.amazon.com/lambda/latest/dg/java-programming-model-handler-types.html"

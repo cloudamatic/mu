@@ -246,7 +246,7 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => @@generic_class_methods,
-        :instance => @@generic_instance_methods + [:groom, :registerNode]
+        :instance => @@generic_instance_methods + [:groom, :registerTarget]
       },
       :Server => {
         :has_multiples => true,

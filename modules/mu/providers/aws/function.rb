@@ -85,6 +85,7 @@ module MU
             changes[k] = v if v != old_props[k]
           }
           if !changes.empty?
+            wait_for_active
             MU.log "Updating Lambda #{@mu_name}", MU::NOTICE, details: changes
             MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).update_function_configuration(new_props)
           end
@@ -128,6 +129,16 @@ module MU
             }
           
           end 
+
+          # If we have a loadbalancer configured, attach us to it
+          if !@config['loadbalancers'].nil?
+            if @loadbalancers.nil?
+              raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
+            end
+            @loadbalancers.each { |lb|
+              lb.registerTarget(@cloud_id)
+            }
+          end
 
           if @config['invoke_on_completion']
             invoke_params = {
@@ -627,6 +638,15 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
 
         private
 
+        def wait_for_active
+          check = Proc.new {
+            resp = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_function(function_name: @cloud_id)
+            resp.configuration.state != "Active"
+          }
+          MU.retrier([], max: 40, wait: 15, loop_if: check) {
+          }
+        end
+
         def get_properties
           role_obj = MU::Config::Ref.get(@config['role']).kitten(@deploy, cloud: "AWS")
           raise MuError.new "Failed to fetch object from role reference", details: @config['role'].to_h if !role_obj
@@ -724,7 +744,7 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
               raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
             end
             lambda_properties[:vpc_config] = {
-              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
+              :subnet_ids => mySubnets.map { |s| s.cloud_id },
               :security_group_ids => sgs
             }
           end

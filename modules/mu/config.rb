@@ -828,7 +828,7 @@ module MU
         begin
           JSON::Validator.validate!(myschema, plain_cfg)
         rescue JSON::Schema::ValidationError
-          pp plain_cfg
+          puts PP.pp(plain_cfg, '').bold
           # Use fully_validate to get the complete error list, save some time
           errors = JSON::Validator.fully_validate(myschema, plain_cfg)
           realerrors = []
