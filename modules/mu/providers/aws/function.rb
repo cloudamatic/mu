@@ -135,8 +135,17 @@ module MU
             if @loadbalancers.nil?
               raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
             end
+MU.log "loadbalancer check", MU::WARN, details: @loadbalancers.size
             @loadbalancers.each { |lb|
-              lb.registerTarget(@cloud_id)
+              if !lb.targetgroups
+                MU.retrier([], max: 6, wait: 15, loop_if: Proc.new { !lb.targetgroups }) {
+                  lb.cloud_desc(use_cache: false)
+                }
+              end
+              lb.targetgroups.each_pair { |tg_name, tg|
+                addTrigger(tg.target_group_arn, "elasticloadbalancing", tg_name)
+              }
+              lb.registerTarget(arn)
             }
           end
 
@@ -630,7 +639,16 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
           end
 
           if function['role']['name']
-            MU::Config.addDependency(function, function['role']['name'], "role")
+            MU::Config.addDependency(function, function['role']['name'], "role", my_phase: "groom", their_phase: "groom")
+          end
+
+          if !function["loadbalancers"].nil?
+            function["loadbalancers"].each { |lb|
+              lb["name"] ||= lb["concurrent_load_balancer"]
+              if lb["name"]
+                MU::Config.addDependency(function, lb["name"], "loadbalancer")
+              end
+            }
           end
 
           ok

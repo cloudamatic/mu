@@ -41,14 +41,16 @@ module MU
       attr_reader :runtimecode
       attr_reader :valid_values
       attr_reader :is_list_element
+      attr_reader :is_flat_list
 
-      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0)
+      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0, is_flat_list: false)
         @name = name
         @bindings = {}
         @value = value
         @valid_values = valid_values
         @pseudo = pseudo
         @index = index
+        @is_flat_list = is_flat_list
         @runtimecode = runtimecode
         @cloudtype = cloudtype
         @is_list_element = is_list_element
@@ -142,7 +144,7 @@ module MU
     # @param suffix [<String>]: A static String that should be appended to the stored value when queried
     # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
     # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
-    def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
+    def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, flat_list: false, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       param = param.gsub(/[^a-z0-9_]/i, "_")
       if value.nil?
         if @@parameters.nil? or !@@parameters.has_key?(param)
@@ -156,23 +158,30 @@ module MU
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
+
       if value.is_a?(MU::Config::Tail)
         MU.log "Parameter #{param} is using a nested parameter as a value. This rarely works, depending on the target cloud. YMMV.", MU::WARN
         tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
-      elsif !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
+      elsif !list_of.nil? or flat_list or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
         tail = []
         count = 0
         value.split(/\s*,\s*/).each { |subval|
           if @@tails.has_key?(param) and !@@tails[param][count].nil?
-            subval = @@tails[param][count].values.first.to_s if subval.nil?
-            list_of = @@tails[param][count].values.first.getName if list_of.nil?
-            prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
-            description = @@tails[param][count].values.first.description if description.nil?
-            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil? or valid_values.empty?
-            cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
+            src = @@tails[param][count].is_a?(Hash) ? @@tails[param][count].values.first : @@tails[param][count]
+            subval ||= src.to_s
+            is_flat_list = !(@@tails[param][count].is_a?(Hash))
+            list_of ||= src.getName
+            prettyname ||= src.getPrettyName
+            description ||= src.description
+            valid_values = src.valid_values if valid_values.nil? or valid_values.empty?
+            cloudtype = src.getCloudType if src.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
-          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo, index: count) }
+          if !is_flat_list and list_of
+            tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo, index: count) }
+          else
+            tail << MU::Config::Tail.new(param, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo, index: count, is_flat_list: true)
+          end
           count = count + 1
         }
       else

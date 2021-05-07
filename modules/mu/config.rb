@@ -341,9 +341,9 @@ module MU
             end
           end
           if param.has_key?("cloudtype")
-            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'], flat_list: param['list'])
           else
-            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'], flat_list: param['list'])
           end
         }
       end

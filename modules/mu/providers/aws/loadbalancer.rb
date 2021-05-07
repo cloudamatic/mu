@@ -162,9 +162,9 @@ module MU
           parent_thread_id = Thread.current.object_id
           generic_mu_dns = nil
           dnsthread = Thread.new {
-            if !MU::Cloud::AWS.isGovCloud?
+            if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
               MU.dupGlobals(parent_thread_id)
-#              generic_mu_dns = MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+              generic_mu_dns = MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
             end
           }
 
@@ -576,6 +576,10 @@ module MU
           notify
         end
 
+        def groom
+          MU.log "LoadBalancer #{@config['name']} is at #{cloud_desc.dns_name}", MU::SUMMARY
+        end
+
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
@@ -610,7 +614,6 @@ module MU
                   @targetgroups[tg_name] = MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
                 }
               else
-                pp @config['targetgroups']
                 MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).describe_target_groups(load_balancer_arn: @cloud_desc_cache.load_balancer_arn).target_groups.each { |tg|
                   tg_name = tg.target_group_name
                   if @config['targetgroups']
@@ -760,7 +763,7 @@ module MU
                 end
               end
               if matched
-                if !MU::Cloud::AWS.isGovCloud?
+                if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
                   MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
                 end
                 if classic
