@@ -656,7 +656,7 @@ module MU
         #
         # @param id [String] A node or function to register.
         # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
-        def registerTarget(id, targetgroups: nil, type: "instance")
+        def registerTarget(id, backends: nil, type: "instance")
           if @config['classic'] or !@config.has_key?("classic")
             MU.log "Registering #{id} to ELB #{@cloud_id}"
             MU::Cloud::AWS.elb(region: @region, credentials: @credentials).register_instances_with_load_balancer(
@@ -666,14 +666,14 @@ module MU
               ]
             )
           else
-            if targetgroups.nil? or !targetgroups.is_a?(Array) or targetgroups.size == 0
+            if backends.nil? or !backends.is_a?(Array) or backends.size == 0
               if @targetgroups.nil?
                 cloud_desc
                 return if @targetgroups.nil?
               end
-              targetgroups = @targetgroups.keys
+              backends = @targetgroups.keys
             end
-            targetgroups.each { |tg|
+            backends.each { |tg|
               MU.log "Registering #{id} to Target Group #{tg}"
               MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).register_targets(
                 target_group_arn: @targetgroups[tg].target_group_arn,

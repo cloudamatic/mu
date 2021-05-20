@@ -135,7 +135,7 @@ module MU
             if @loadbalancers.nil?
               raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
             end
-MU.log "loadbalancer check", MU::WARN, details: @loadbalancers.size
+
             @loadbalancers.each { |lb|
               if !lb.targetgroups
                 MU.retrier([], max: 6, wait: 15, loop_if: Proc.new { !lb.targetgroups }) {
@@ -178,9 +178,34 @@ MU.log "loadbalancer check", MU::WARN, details: @loadbalancers.size
             statement_id: "#{calling_service}-#{calling_name.gsub(/[^a-z0-9\-_]/i, '_')}",
           }
 
+          # Just return if we already have this condition
+          begin
+            pol = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_policy(function_name: @cloud_id).policy
+            if pol
+              pol = JSON.parse(pol)
+              pol["Statement"].each { |s|
+                if !s["Condition"] or !s["Condition"]["ArnLike"] or
+                   !s["Condition"]["ArnLike"]["AWS:SourceArn"] or !s["Effect"] or
+                   !s["Principal"] or !s["Action"]
+                  next
+                end
+                if s["Effect"] == "Allow" and
+                   s["Sid"] == trigger[:statement_id] and
+                   s["Principal"] == { "Service" => trigger[:principal] } and
+                   s["Action"] == trigger[:action] and
+                   s["Condition"]["ArnLike"]["AWS:SourceArn"] == trigger[:source_arn]
+                  return
+
+                end
+              }
+            end
+          rescue Aws::Lambda::Errors::ResourceNotFoundException
+          end
+
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
+            MU.log "Adding permission for Lambda function #{@cloud_id}", MU::NOTICE, details: trigger
             MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).add_permission(trigger)
           rescue Aws::Lambda::Errors::ValidationException => e
             MU.log e.message+" (calling_arn: #{calling_arn}, calling_service: #{calling_service}, calling_name: #{calling_name})", MU::ERR, details: trigger
@@ -436,7 +461,6 @@ MU.log "loadbalancer check", MU::WARN, details: @loadbalancers.size
 
           begin
             pol = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_policy(function_name: @cloud_id).policy
-MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV-2020080900-LN-ON-DEMAND-SCANNER"
             if pol
               bok['triggers'] ||= []
               JSON.parse(pol)["Statement"].each { |s|

@@ -534,168 +534,9 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
-            @config['vpc']["id"] ||= @config['vpc']["vpc_id"] # old deploys
-            @config['vpc']["name"] ||= @config['vpc']["vpc_name"] # old deploys
-            # If something hash-ified a MU::Config::Ref here, fix it
-            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(Hash)
-              @config['vpc']["id"] = MU::Config::Ref.new(@config['vpc']["id"])
-            end
-            if !@config['vpc']["id"].nil?
-              if @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
-                @vpc = @config['vpc']["id"].kitten(@deploy)
-              else
-                if @config['vpc']['habitat']
-                  @config['vpc']['habitat'] = MU::Config::Ref.get(@config['vpc']['habitat'])
-                end
-                vpc_ref = MU::Config::Ref.get(@config['vpc'])
-                @vpc = vpc_ref.kitten(@deploy)
-              end
-            elsif !@config['vpc']["name"].nil? and @deploy
-              MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
-
-              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
-              if sib_by_name.is_a?(Hash)
-                if sib_by_name.size == 1
-                  @vpc = sib_by_name.values.first
-                  MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
-                else
-# XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
-                  # we got multiple matches, try to pick one by preferred subnet
-                  # behavior
-                  MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
-                  sib_by_name.values.each { |sibling|
-                    all_private = sibling.subnets.map { |s| s.private? }.all?(true)
-                    all_public = sibling.subnets.map { |s| s.private? }.all?(false)
-                    names = sibling.subnets.map { |s| s.name }
-                    ids = sibling.subnets.map { |s| s.cloud_id }
-                    if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
-                      @vpc = sibling
-                      break
-                    elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
-                      @vpc = sibling
-                      break
-                    elsif @config['vpc']['subnet_name'] and
-                          names.include?(@config['vpc']['subnet_name'])
-#puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
-                      @vpc = sibling
-                      break
-                    elsif @config['vpc']['subnet_id'] and
-                          ids.include?(@config['vpc']['subnet_id'])
-                      @vpc = sibling
-                      break
-                    end
-                  }
-                  if !@vpc
-                    sibling = sib_by_name.values.sample
-                    MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: @config['vpc']
-                    @vpc = sibling
-                  end
-                end
-              else
-                @vpc = sib_by_name
-                MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
-              end
-            else
-              MU.log "No shortcuts available to fetch VPC for #{self}", loglevel, details: @config['vpc']
-            end
-
-            if !@vpc and !@config['vpc']["name"].nil? and
-                @dependencies.has_key?("vpc") and
-                @dependencies["vpc"].has_key?(@config['vpc']["name"])
-              MU.log "Grabbing VPC I see in @dependencies['vpc']['#{@config['vpc']["name"]}'] for #{self}", loglevel, details: @config['vpc']
-              @vpc = @dependencies["vpc"][@config['vpc']["name"]]
-            elsif !@vpc
-              tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-              if !@config['vpc'].has_key?("id") and
-                  !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
-                @config['vpc']["deploy_id"] = @deploy.deploy_id
-              end
-              MU.log "Doing findStray for VPC for #{self}", loglevel, details: @config['vpc']
-              vpcs = MU::MommaCat.findStray(
-                @config['cloud'],
-                "vpc",
-                deploy_id: @config['vpc']["deploy_id"],
-                cloud_id: @config['vpc']["id"],
-                name: @config['vpc']["name"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                habitats: [@project_id],
-                region: @config['vpc']["region"],
-                calling_deploy: @deploy,
-                credentials: @credentials,
-                dummy_ok: true,
-                debug: debug
-              )
-              @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
-            end
-            if @vpc and @vpc.config and @vpc.config['bastion'] and
-               @vpc.config['bastion'].to_h['name'] != @config['name']
-              refhash = @vpc.config['bastion'].to_h
-              refhash['deploy_id'] ||= @vpc.deploy.deploy_id
-              natref = MU::Config::Ref.get(refhash)
-              if natref and natref.kitten(@vpc.deploy)
-                @nat = natref.kitten(@vpc.deploy)
-              end
-            end
-            if @nat.nil? and !@vpc.nil? and (
-              @config['vpc'].has_key?("nat_host_id") or
-              @config['vpc'].has_key?("nat_host_tag") or
-              @config['vpc'].has_key?("nat_host_ip") or
-              @config['vpc'].has_key?("nat_host_name")
-            )
-
-              nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
-
-              @nat = @vpc.findBastion(
-                nat_name: @config['vpc']['nat_host_name'],
-                nat_cloud_id: @config['vpc']['nat_host_id'],
-                nat_tag_key: nat_tag_key,
-                nat_tag_value: nat_tag_value,
-                nat_ip: @config['vpc']['nat_host_ip']
-              )
-
-              if @nat.nil?
-                if !@vpc.cloud_desc.nil?
-                  @nat = @vpc.findNat(
-                    nat_cloud_id: @config['vpc']['nat_host_id'],
-                    nat_filter_key: "vpc-id",
-                    region: @config['vpc']["region"],
-                    nat_filter_value: @vpc.cloud_id,
-                    credentials: @config['credentials']
-                  )
-                else
-                  @nat = @vpc.findNat(
-                    nat_cloud_id: @config['vpc']['nat_host_id'],
-                    region: @config['vpc']["region"],
-                    credentials: @config['credentials']
-                  )
-                end
-              end
-            end
-            if @vpc.nil? and @config['vpc']
-              feck = MU::Config::Ref.get(@config['vpc'])
-              feck.kitten(@deploy, debug: true)
-              pp feck
-              raise MuError.new "#{self.class.cfg_name} #{@config['name']} failed to locate its VPC", details: @config['vpc']
-            end
+            @vpc, @nat = myVpc(@config['vpc'], loglevel: loglevel, debug: debug)
           elsif self.class.cfg_name == "vpc"
             @vpc = self
-          end
-
-          # Google accounts usually have a useful default VPC we can use
-          if @vpc.nil? and @project_id and @cloud == "Google" and
-             self.class.can_live_in_vpc
-            MU.log "Seeing about default VPC for #{self}", MU::NOTICE
-            vpcs = MU::MommaCat.findStray(
-              "Google",
-              "vpc",
-              cloud_id: "default",
-              habitats: [@project_id],
-              credentials: @credentials,
-              dummy_ok: true,
-              debug: debug
-            )
-            @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
           end
 
           # Special dependencies: LoadBalancers I've asked to attach to an
@@ -779,33 +620,209 @@ module MU
           return [@dependencies, @vpc, @loadbalancers]
         end
 
+        # Resolve a VPC block to an actual resource
+        def myVpc(vpc_block = @config['vpc'], loglevel: MU::DEBUG, debug: false)
+          vpc_obj = nat_obj = nil
+
+          vpc_block['credentials'] ||= @credentials
+          vpc_block["id"] ||= vpc_block["vpc_id"] # old deploys
+          vpc_block["name"] ||= vpc_block["vpc_name"] # old deploys
+          if vpc_block['habitat']
+            vpc_block['habitat'] = MU::Config::Ref.get(vpc_block['habitat'])
+          end
+          habitats_arg = if vpc_block['habitat']
+            [vpc_block['habitat'].id]
+          else
+            [@project_id]
+          end
+
+          # If something hash-ified a MU::Config::Ref here, fix it
+          if !vpc_block["id"].nil? and vpc_block["id"].is_a?(Hash)
+            vpc_block["id"] = MU::Config::Ref.new(vpc_block["id"])
+          end
+          if !vpc_block["id"].nil?
+            if vpc_block["id"].is_a?(MU::Config::Ref) and !vpc_block["id"].kitten.nil?
+              vpc_obj = vpc_block["id"].kitten(@deploy)
+            else
+              vpc_ref = MU::Config::Ref.get(vpc_block)
+              vpc_obj = vpc_ref.kitten(@deploy)
+            end
+          elsif !vpc_block["name"].nil? and @deploy
+            MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: vpc_block
+
+            sib_by_name = @deploy.findLitterMate(name: vpc_block['name'], type: "vpcs", return_all: true, habitat: vpc_block['project'], debug: debug)
+            if sib_by_name.is_a?(Hash)
+              if sib_by_name.size == 1
+                vpc_obj = sib_by_name.values.first
+                MU.log "Single VPC match for #{self}", loglevel, details: vpc_obj.to_s
+              else
+# XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
+                # we got multiple matches, try to pick one by preferred subnet
+                # behavior
+                MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
+                sib_by_name.values.each { |sibling|
+                  all_private = sibling.subnets.map { |s| s.private? }.all?(true)
+                  all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                  names = sibling.subnets.map { |s| s.name }
+                  ids = sibling.subnets.map { |s| s.cloud_id }
+                  if all_private and ["private", "all_private"].include?(vpc_block['subnet_pref'])
+                    vpc_obj = sibling
+                    break
+                  elsif all_public and ["public", "all_public"].include?(vpc_block['subnet_pref'])
+                    vpc_obj = sibling
+                    break
+                  elsif vpc_block['subnet_name'] and
+                        names.include?(vpc_block['subnet_name'])
+#puts "CHOOSING #{vpc_obj.to_s} 'cause it has #{vpc_block['subnet_name']}"
+                    vpc_obj = sibling
+                    break
+                  elsif vpc_block['subnet_id'] and
+                        ids.include?(vpc_block['subnet_id'])
+                    vpc_obj = sibling
+                    break
+                  end
+                }
+                if !vpc_obj
+                  sibling = sib_by_name.values.sample
+                  MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: vpc_block
+                  vpc_obj = sibling
+                end
+              end
+            else
+              vpc_obj = sib_by_name
+              MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
+            end
+          else
+            MU.log "No shortcuts available to fetch VPC for #{self}", loglevel, details: vpc_block
+          end
+
+          if !vpc_obj and !vpc_block["name"].nil? and
+              @dependencies.has_key?("vpc") and
+              @dependencies["vpc"].has_key?(vpc_block["name"])
+            MU.log "Grabbing VPC I see in @dependencies['vpc']['#{vpc_block["name"]}'] for #{self}", loglevel, details: vpc_block
+            vpc_obj = @dependencies["vpc"][vpc_block["name"]]
+          elsif !vpc_obj
+            tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
+            if !vpc_block.has_key?("id") and
+                !vpc_block.has_key?("deploy_id") and !@deploy.nil?
+              vpc_block["deploy_id"] = @deploy.deploy_id
+            end
+            MU.log "Doing findStray for VPC for #{self}", loglevel, details: vpc_block
+            vpcs = MU::MommaCat.findStray(
+              @config['cloud'],
+              "vpc",
+              deploy_id: vpc_block["deploy_id"],
+              cloud_id: vpc_block["id"],
+              name: vpc_block["name"],
+              tag_key: tag_key,
+              tag_value: tag_value,
+              habitats: habitats_arg,
+              region: vpc_block["region"],
+              calling_deploy: @deploy,
+              credentials: vpc_block["credentials"],
+              dummy_ok: true,
+              debug: debug
+            )
+            vpc_obj = vpcs.first if !vpcs.nil? and vpcs.size > 0
+          end
+          if vpc_obj and vpc_obj.config and vpc_obj.config['bastion'] and
+             vpc_obj.config['bastion'].to_h['name'] != @config['name']
+            refhash = vpc_obj.config['bastion'].to_h
+            refhash['deploy_id'] ||= vpc_obj.deploy.deploy_id
+            natref = MU::Config::Ref.get(refhash)
+            if natref and natref.kitten(vpc_obj.deploy)
+              nat_obj = natref.kitten(vpc_obj.deploy)
+            end
+          end
+          if nat_obj.nil? and !vpc_obj.nil? and (
+            vpc_block.has_key?("nat_host_id") or
+            vpc_block.has_key?("nat_host_tag") or
+            vpc_block.has_key?("nat_host_ip") or
+            vpc_block.has_key?("nat_host_name")
+          )
+
+            nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2) if !vpc_block['nat_host_tag'].nil?
+
+            nat_obj = vpc_obj.findBastion(
+              nat_name: vpc_block['nat_host_name'],
+              nat_cloud_id: vpc_block['nat_host_id'],
+              nat_tag_key: nat_tag_key,
+              nat_tag_value: nat_tag_value,
+              nat_ip: vpc_block['nat_host_ip']
+            )
+
+            if naa_obj.nil?
+              if !vpc_obj.cloud_desc.nil?
+                nat_obj = vpc_obj.findNat(
+                  nat_cloud_id: vpc_block['nat_host_id'],
+                  nat_filter_key: "vpc-id",
+                  region: vpc_block["region"],
+                  nat_filter_value: vpc_obj.cloud_id,
+                  credentials: vpc_block['credentials']
+                )
+              else
+                nat_obj = vpc_obj.findNat(
+                  nat_cloud_id: vpc_block['nat_host_id'],
+                  region: vpc_block["region"],
+                  credentials: vpc_block['credentials']
+                )
+              end
+            end
+          end
+          if vpc_obj.nil? and vpc_block
+            feck = MU::Config::Ref.get(vpc_block)
+            feck.kitten(@deploy, debug: true)
+            pp feck
+            raise MuError.new "#{self.class.cfg_name} #{@config['name']} failed to locate its VPC", details: vpc_block
+          end
+
+          # Google accounts usually have a useful default VPC we can use
+          if vpc_obj.nil? and @project_id and @cloud == "Google" and
+             self.class.can_live_in_vpc
+            MU.log "Seeing about default VPC for #{self}", MU::NOTICE
+            vpcs = MU::MommaCat.findStray(
+              "Google",
+              "vpc",
+              cloud_id: "default",
+              habitats: [@project_id],
+              credentials: vpc_block['credentials'],
+              dummy_ok: true,
+              debug: debug
+            )
+            vpc_obj = vpcs.first if !vpcs.nil? and vpcs.size > 0
+          end
+
+          [vpc_obj, nat_obj]
+        end
+
         # Using the automatically-defined +@vpc+ from {dependencies} in
         # conjunction with our config, return our configured subnets.
         # @return [Array<MU::Cloud::VPC::Subnet>]
-        def mySubnets
+        def mySubnets(vpc = @vpc, vpc_block = @config["vpc"])
           dependencies
-          if !@vpc or !@config["vpc"]
+          vpc ||= @vpc # in case dependencies worked it out for us
+          if !vpc or !vpc_block
             return nil
           end
 
-          if @config["vpc"]["subnet_id"] or @config["vpc"]["subnet_name"]
-            @config["vpc"]["subnets"] ||= []
+          if vpc_block["subnet_id"] or vpc_block["subnet_name"]
+            vpc_block["subnets"] ||= []
             subnet_block = {}
-            subnet_block["subnet_id"] = @config["vpc"]["subnet_id"] if @config["vpc"]["subnet_id"]
-            subnet_block["subnet_name"] = @config["vpc"]["subnet_name"] if @config["vpc"]["subnet_name"]
-            @config["vpc"]["subnets"] << subnet_block
-            @config["vpc"]["subnets"].uniq!
+            subnet_block["subnet_id"] = vpc_block["subnet_id"] if vpc_block["subnet_id"]
+            subnet_block["subnet_name"] = vpc_block["subnet_name"] if vpc_block["subnet_name"]
+            vpc_block["subnets"] << subnet_block
+            vpc_block["subnets"].uniq!
           end
 
-          if (!@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty?) and
-             !@config["vpc"]["subnet_id"]
-            return @vpc.subnets
+          if (!vpc_block["subnets"] or vpc_block["subnets"].empty?) and
+             !vpc_block["subnet_id"]
+            return vpc.subnets
           end
 
           subnets = []
-          @config["vpc"]["subnets"].each { |subnet|
-            subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-            raise MuError.new "Couldn't find a live subnet for #{self} matching #{subnet} in #{@vpc}", details: @vpc.subnets.map { |s| s.name }.join(",") if subnet_obj.nil?
+          vpc_block["subnets"].each { |subnet|
+            subnet_obj = vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+            raise MuError.new "Couldn't find a live subnet for #{self} matching #{subnet} in #{vpc}", details: vpc.subnets.map { |s| s.name }.join(",") if subnet_obj.nil?
             subnets << subnet_obj
           }
 

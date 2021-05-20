@@ -443,13 +443,14 @@ module MU
             l["targetgroup"] = tgname
             tg = { 
               "name" => tgname,
-              "proto" => l["instance_protocol"],
-              "port" => l["instance_port"]
+              "proto" => l["instance_protocol"] || l["lb_protocol"],
+              "port" => l["instance_port"] || l["lb_port"]
             }
             if l["redirect"]
               tg["proto"] ||= l["redirect"]["protocol"]
               tg["port"] ||= l["redirect"]["port"]
             end
+            tg["vpc"] = l["vpc"] if l["vpc"]
             l['healthcheck'] ||= lb['healthcheck'] if lb['healthcheck']
             if l["healthcheck"]
               hc_target = l['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
@@ -465,11 +466,13 @@ module MU
           # well ok, manufacture listeners out of targetgroups then?
           lb['listeners'] ||= []
           lb["targetgroups"].each { |tg|
-            lb['listeners'] << {
+            listener = {
               "targetgroup" => tg['name'],
               "lb_protocol" => tg["proto"],
               "lb_port" => tg["port"]
             }
+            listener["vpc"] = tg["vpc"] if tg["vpc"]
+            lb['listeners'] << listener
           }
         else
           lb['listeners'].each { |l|

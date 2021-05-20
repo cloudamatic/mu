@@ -271,6 +271,43 @@ module example.com/cloudfunction
             MU::Cloud::Google.function(credentials: @credentials).set_function_iam_policy(@cloud_id, pol_req)
           end
 
+          # If we have a loadbalancer configured, attach us to it
+          if !@config['loadbalancers'].nil?
+            if @loadbalancers.nil?
+              raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
+            end
+
+            neg_name = @deploy.getResourceName(@config["name"], max_length: 19, never_gen_unique: true).downcase
+            neg_desc = begin
+              MU::Cloud::Google.compute(credentials: @config['credentials']).get_region_network_endpoint_group(@project_id, @config['region'], neg_name)
+            rescue ::Google::Apis::ClientError => e
+              raise e if e.message !~ /notFound:/
+              neg_obj = MU::Cloud::Google.compute(:NetworkEndpointGroup).new(
+                name: neg_name,
+                description: @deploy.deploy_id,
+                cloud_function: MU::Cloud::Google.compute(:NetworkEndpointGroupCloudFunction).new(
+                  function: @cloud_id.gsub(/.*?\//, '')
+                ),
+                network_endpoint_type: "SERVERLESS"
+              )
+              MU.log "Creating Network Endpoint Group #{neg_name}", details: neg_obj
+              MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_network_endpoint_group(@project_id, @config['region'], neg_obj)
+              retry
+            end
+
+            @loadbalancers.each { |lb|
+#              if !lb.targetgroups
+#                MU.retrier([], max: 6, wait: 15, loop_if: Proc.new { !lb.targetgroups }) {
+#                  lb.cloud_desc(use_cache: false)
+#                }
+#              end
+#              lb.targetgroups.each_pair { |tg_name, tg|
+#                addTrigger(tg.target_group_arn, "elasticloadbalancing", tg_name)
+#              }
+              lb.registerTarget(neg_desc.self_link)
+            }
+          end
+
         end
 
         # Return the metadata for this project's configuration
@@ -630,6 +667,15 @@ module example.com/cloudfunction
 #            MU.log "Cloud Function #{function['name']} must declare a VPC", MU::ERR
 #            ok = false
 #          end
+
+          if !function["loadbalancers"].nil?
+            function["loadbalancers"].each { |lb|
+              lb["name"] ||= lb["concurrent_load_balancer"]
+              if lb["name"]
+                MU::Config.addDependency(function, lb["name"], "loadbalancer")
+              end
+            }
+          end
 
           ok
         end
