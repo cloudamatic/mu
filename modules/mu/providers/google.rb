@@ -40,7 +40,7 @@ module MU
         # @return [String]
         def url
           desc = cloud_desc
-          (desc and desc.self_link) ? desc.self_link : nil
+          (desc and desc.respond_to?(:self_link) and desc.self_link) ? desc.self_link : nil
         end
       end
 
@@ -1278,7 +1278,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise e
               end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
-              if e.message.match(/^quotaExceeded: Request rate/)
+              if e.message.match(/^quotaExceeded: Request rate|failedPrecondition.*?already in progress/)
                 if retries <= 10
                   sleep wait_backoff
                   retries += 1

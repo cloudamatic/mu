@@ -490,6 +490,15 @@ module MU
           }
         end
 
+        lb['targetgroups'].each { |tg|
+          if tg['target']
+            tg['target']['cloud'] ||= lb['cloud']
+            if tg['target']['name']
+              MU::Config.addDependency(lb, tg['target']['name'], tg['target']['type'], their_phase: "create", my_phase: "groom")
+            end
+          end
+        }
+
         lb['listeners'].each { |l|
           if !l['rules'].nil? and l['rules'].size > 0
             l['rules'].each { |r|

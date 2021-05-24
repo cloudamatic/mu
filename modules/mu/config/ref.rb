@@ -80,6 +80,11 @@ module MU
             end
           }
 
+          if MU.mommacat
+            @mommacat ||= MU.mommacat
+            @deploy_id ||= MU.mommacat.deploy_id
+          end
+
         }
 
         # if we get here, there was no match
@@ -291,6 +296,7 @@ module MU
         return nil if !cloud or !@type
 
         _shortclass, _cfg_name, cfg_plural, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+
         if cfg_plural
           @type = cfg_plural # make sure this is the thing we expect
         else
@@ -298,6 +304,12 @@ module MU
         end
 
         loglevel = debug ? MU::NOTICE : MU::DEBUG
+
+        if @name and !@id and !mommacat and !@deploy_id and MU.mommacat
+          MU.log "Checking active deploy for #{@type} #{@name} first", loglevel
+          resp = kitten(MU.mommacat, shallow: shallow, debug: debug, cloud: cloud)
+          return resp if resp
+        end
 
         if debug
           MU.log "this mf kitten", MU::WARN, details: caller
