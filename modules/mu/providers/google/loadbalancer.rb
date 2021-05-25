@@ -41,7 +41,12 @@ module MU
                 vpc_obj = myVpc(tg['vpc']).first if tg['vpc'] # XXX inherit top-level vpc config if it's set
 
 #                if !@config['private'] or ["INTERNAL_MANAGED", "INTERNAL_SELF_MANAGED"].include?(@config['scheme'])
-                  backends[tg['name']] = createBackendService(tg)
+                  backends[tg['name']] = if ["EXTERNAL", "EXTERNAL_MANAGED", "INTERNAL_MANAGED", "INTERNAL_SELF_MANAGED"].include?(@config['scheme'])
+                    createBackendService(tg)
+                  else
+                    createBackendService(tg, region: @config['region'])
+                  end
+                  
                   targets[tg['name']] = createProxy(tg, backends[tg['name']], region: (@config['global'] ? nil : @config['region']))
 #                end
               }
@@ -51,14 +56,18 @@ module MU
             end
           end
 
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
+
           @cloud_id = @mu_name
-MU.log "backends", MU::WARN, details: backends
-MU.log "targets", MU::WARN, details: targets
           @config["listeners"].each { |l|
+            labels["name"] = MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup'])
             ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
               name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
               description: @deploy.deploy_id,
-              load_balancing_scheme: @config['scheme']
+              load_balancing_scheme: @config['scheme'],
+              labels: labels
             )
 
             if ["INTERNAL_MANAGED", "INTERNAL_SELF_MANAGED"].include?(@config['scheme'])
@@ -94,6 +103,7 @@ MU.log "targets", MU::WARN, details: targets
                 ruleobj
               )
             else
+              ruleobj.network_tier = "STANDARD"
               MU.log "Creating regional Forwarding Rule #{@mu_name} in #{@config['region']}", MU::NOTICE, details: ruleobj
               MU::Cloud::Google.compute(credentials: @config['credentials']).insert_forwarding_rule(
                 @project_id,
@@ -109,10 +119,11 @@ MU.log "targets", MU::WARN, details: targets
           if @config['targetgroups']
             @config['targetgroups'].each { |tg|
               if tg['target']
-MU.log "le fuckerie", MU::WARN, details: tg['target']
-pp cloud_desc
-pp @backend_cache
-                pp createNetworkEndpointGroup(tg['name'], tg['target'], region: @config['region'])
+                backend_name =  MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))
+                serverless = (tg['target']['type'] == "functions")
+                region_arg = (serverless or !@config['global']) ? @config['region'] : nil
+                neg_desc = createNetworkEndpointGroup(tg['name'], tg['target'], region: region_arg)
+                registerTarget(neg_desc.self_link, backends: [backend_name], serverless: serverless)
               end
             }
           end
@@ -148,13 +159,12 @@ pp @backend_cache
               @backend_cache << rule.backend_service.gsub(/.*?\//, '')
             elsif rule.respond_to?(:target) and !rule.target.nil?
               proxy = self.class.desc_from_url(rule.target, @project_id, credentials: @credentials)
-puts PP.pp(proxy, '').magenta
               if proxy.respond_to?(:url_map) and !proxy.url_map.nil?
                 urlmap = self.class.desc_from_url(proxy.url_map, @project_id, credentials: @credentials)
                 if urlmap.respond_to?(:default_service) and !urlmap.default_service.nil?
                   backend = self.class.desc_from_url(urlmap.default_service, @project_id, credentials: @credentials)
                   @backend_cache ||= []
-                  @backend_cache << backend.name
+                  @backend_cache << backend
                 end
               end
             end
@@ -187,37 +197,32 @@ puts PP.pp(proxy, '').magenta
         #
         # @param target [String] A node or URL or something to register.
         # @param backends [Array<String>] The target group(s) of which this node should be made a member.
-        def registerTarget(target, backends: nil)
-          pp target
-          neg_desc = createNetworkEndpointGroup(tg['name'], tg['target'])
-pp cloud_desc
-          describeBackends.each { |b|
+        def registerTarget(target, backends: nil, serverless: false)
+          cloud_desc
+
+          @backend_cache.each { |b|
             next if backends and !backends.include?(b.name)
-MU.log "Google LB registerTarget called for #{target}", MU::WARN, details: b
+
             b.backends ||= []
-b.health_checks = [] # XXX this is a SERVERLESS thing
+            if serverless
+              b.health_checks = []
+              b.timeout_sec = nil
+              b.port_name = nil
+            end
             b.backends << MU::Cloud::Google.compute(:Backend).new(
               group: target
             )
-            MU.log "Adding backend service #{b.name}"
-            if @config['private'] and !@config['global']
-              MU::Cloud::Google.compute(credentials: @credentials).update_region_backend_service(@project_id, @config['region'], b.name, b)
-            else
-              MU::Cloud::Google.compute(credentials: @credentials).update_backend_services(@project_id, b.name, b)
-            end
+            MU.log "Adding target #{target} to backend service #{b.name}", details: b
+            b.self_link =~ /\/projects\/[^\/]+\/([^\/]+)\/backendServices/
+            region = Regexp.last_match[1] == "global" ? nil : Regexp.last_match[1]
+            method = "update_#{region ? "region_" : ""}backend_service".to_sym
+            args = [@project_id]
+            args << region if region
+            args << b.name
+            args << b
+            MU::Cloud::Google.compute(credentials: @credentials).send(method, *args)
           }
 
-        end
-
-        def describeBackends
-          resp = if @config['private'] and !@config['global']
-            MU::Cloud::Google.compute(credentials: @credentials).list_region_backend_services(@project_id, @config['region'], filter: "description = \"#{@deploy.deploy_id}\"")
-          else
-            MU::Cloud::Google.compute(credentials: @credentials).list_backend_services(@project_id, filter: "description = \"#{@deploy.deploy_id}\"")
-          end
-          return [] if !resp
-
-          resp.items.reject { |b| !@backend_cache.include?(b.name) }
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -242,11 +247,34 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
-          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
-          if !ignoremaster and MU.mu_public_ip
-            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
-          end
+          filter = "description eq #{deploy_id}" # most of these objects don't support labels
+#          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+#          if !ignoremaster and MU.mu_public_ip
+#            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+#          end
+
           MU.log "Placeholder: Google LoadBalancer artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
+
+#          if flags['global']
+#          XXX network_endpoint_group is actually a zonal artifact, ugh
+#            resp = MU::Cloud::Google.compute(credentials: credentials).list_network_endpoint_groups(flags["habitat"], filter: "description eq #{deploy_id}")
+#            if resp and resp.items
+#              resp.items.each { |neg|
+#                MU.log "Removing Network Endpoint Group #{neg.name}"
+#                MU::Cloud::Google.compute(credentials: credentials).delete_network_endpoint_group(flags["habitat"], neg.name) if !noop
+#              }
+#            end
+
+            ["global_forwarding_rule", "target_tcp_proxy", "target_grpc_proxy", "target_ssl_proxy", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
+              MU::Cloud::Google.compute(credentials: credentials).delete(
+                type,
+                flags["habitat"],
+                nil,
+                noop,
+                filter
+              )
+            }
+#          end
 
           if region
             # Network Endpoint Groups don't have labels, so our deploy id gets
@@ -259,7 +287,7 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
               }
             end
 
-            ["forwarding_rule", "region_backend_service", "network_endpoint_group"].each { |type|
+            ["forwarding_rule", "region_url_map", "region_backend_service", "region_network_endpoint_group", "region_target_http_proxy", "region_target_https_proxy", "region_health_check"].each { |type|
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["habitat"],
@@ -270,23 +298,6 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
             }
           end
 
-#          if flags['global']
-#            resp = MU::Cloud::Google.compute(credentials: credentials).list_network_endpoint_groups(flags["habitat"], filter: "description eq #{deploy_id}")
-#            resp.items.each { |neg|
-#              MU.log "Removing Network Endpoint Group #{neg.name}"
-#              MU::Cloud::Google.compute(credentials: credentials).delete_network_endpoint_group(flags["habitat"], neg.name) if !noop
-#            }
-
-            ["global_forwarding_rule", "target_tcp_proxy", "target_grpc_proxy", "target_ssl_proxy", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "network_endpoint_group", "health_check", "http_health_check", "https_health_check"].each { |type|
-              MU::Cloud::Google.compute(credentials: credentials).delete(
-                type,
-                flags["habitat"],
-                nil,
-                noop,
-                filter
-              )
-            }
-#          end
         end
 
         # Cloud-specific configuration properties.
@@ -538,8 +549,6 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
             MU::Config::Ref.get(target).kitten(debug: true)
             raise MuError.new "Failed to locate Cloud Function from reference", details: target
           end
-#          pp target
-#          pp function.cloud_desc
           neg_name = @deploy.getResourceName(basename, max_length: 19, never_gen_unique: true).downcase
           begin
             if region
@@ -569,15 +578,16 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
 
         end
 
-        def createBackendService(tg)
+        def createBackendService(tg, region: nil)
           desc = {
             :name => MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"])),
             :description => @deploy.deploy_id,
             :load_balancing_scheme => @config['scheme'],
-            :global => @config['global'],
             :protocol => tg['proto'],
             :timeout_sec => @config['idle_timeout']
           }
+          desc[:global] = region.nil?
+          desc[:backends] = []
 # TODO EXTERNAL only: port_name, enable_cdn
           if @config['connection_draining_timeout'] > 0
             desc[:connection_draining] = MU::Cloud::Google.compute(:ConnectionDraining).new(
@@ -604,22 +614,19 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
             hc = createHealthCheck(tg["healthcheck"], tg["name"])
             desc[:health_checks] = [hc.self_link]
           end
+          if ["EXTERNAL", "INTERNAL_MANAGED", "INTERNAL_SELF_MANAGED"].include?(@config['scheme'])
+            desc[:port_name] = "placeholder" # relevant when an actual instance group backend is added, required for some reason even if not relevant
+          end
 
           backend_obj = MU::Cloud::Google.compute(:BackendService).new(desc)
-          MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
+          MU.log "Creating #{region ? region : "global"} backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", MU::NOTICE, details: backend_obj
 
-          if @config['private'] and !@config['global']
-            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_backend_service(
-              @project_id,
-              @config['region'],
-              backend_obj
-            )
-          else
-            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_backend_service(
-              @project_id,
-              backend_obj
-            )
-          end
+          method = "insert_#{region ? "region_": ""}backend_service".to_sym
+          args = [@project_id]
+          args << region if region
+          args << backend_obj
+
+          MU::Cloud::Google.compute(credentials: @credentials).send(method, *args)
         end
 
         def createHealthCheck(hc, namebase)
@@ -630,8 +637,8 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
           path = target[3]
           name = MU::Cloud::Google.nameStr(@deploy.getResourceName(namebase+"-hc-"+proto.downcase+"-"+port.to_s))
 
-          if proto == "HTTP" or proto == "HTTPS"
-            hc_obj = MU::Cloud::Google.compute(proto == "HTTP" ? :HttpHealthCheck : :HttpsHealthCheck).new(
+          httpcheck = if ["HTTP", "HTTPS", "HTTP2"].include?(proto)
+            MU::Cloud::Google.compute("#{proto.capitalize}HealthCheck".to_sym).new(
               check_interval_sec: hc["interval"],
               timeout_sec: hc["timeout"],
               unhealthy_threshold: hc["unhealthy_threshold"],
@@ -641,20 +648,12 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
               port: port,
               request_path: path ? path : "/"
             )
-# other types:
-# type: SSL, HTTP2
-            MU.log "Creating #{proto} health check #{name}", details: hc_obj
-            if proto == "HTTP"
-              return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_http_health_check(
-                @project_id,
-                hc_obj
-              )
-            else
-              return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_https_health_check(
-                @project_id,
-                hc_obj
-              )
-            end
+          end
+
+          if proto == "HTTP" or proto == "HTTPS" and @config['global']
+            MU.log "Creating global #{proto} health check #{name}", details: httpcheck
+            method = "insert_#{proto.downcase}_health_check"
+            return MU::Cloud::Google.compute(credentials: @config['credentials']).send(method, @project_id, httpcheck)
           else
             desc = {
               :check_interval_sec => hc["interval"],
@@ -662,10 +661,10 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
               :unhealthy_threshold => hc["unhealthy_threshold"],
               :healthy_threshold => hc["healthy_threshold"],
               :description => @deploy.deploy_id,
-              :name => name
+              :name => name,
+              :type => proto
             }
             if proto == "TCP"
-              desc[:type] = "TCP"
               desc[:tcp_health_check] = MU::Cloud::Google.compute(:TcpHealthCheck).new(
                 port: port,
                 proxy_header: "NONE",
@@ -673,27 +672,36 @@ b.health_checks = [] # XXX this is a SERVERLESS thing
                 response: ""
               )
             elsif proto == "SSL"
-              desc[:type] = "SSL"
               desc[:ssl_health_check] = MU::Cloud::Google.compute(:SslHealthCheck).new(
                 port: port,
                 proxy_header: "NONE",
                 request: "", # XXX needs to be configurable
                 response: "" # XXX needs to be configurable
               )
-            elsif proto == "UDP"
-              desc[:type] = "UDP"
+            elsif proto == "GRPC"
+              desc[:grpc_health_check] = MU::Cloud::Google.compute(:GrpcHealthCheck).new(
+                port: port,
+                port_specification: "USE_FIXED_PORT",
+                port_name: "", # XXX needs to be configurable
+                grpc_service_name: "" # XXX needs to be configurable
+              )
+            elsif proto == "UDP" # XXX deprecated I think?
               desc[:udp_health_check] = MU::Cloud::Google.compute(:UdpHealthCheck).new(
                 port: port,
                 request: "ORLY", # XXX needs to be configurable
                 response: "YARLY" # XXX needs to be configurable
               )
+            elsif ["HTTP", "HTTPS", "HTTP2"].include?(proto)
+              desc["#{proto.downcase}_health_check".to_sym] = httpcheck
             end
             hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
+            method = "insert_#{@config['global'] ? "" : "region_" }health_check"
+            args = [@project_id]
+            args << @config['region'] if !@config['global']
+            args << hc_obj
 
-            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_health_check(
-              @project_id,
-              hc_obj
-            )
+            MU.log "Creating #{@config['global'] ? "global" : @config['region'] } health check #{name}", details: hc_obj
+            return MU::Cloud::Google.compute(credentials: @config['credentials']).send(method, *args)
           end
 
         end
