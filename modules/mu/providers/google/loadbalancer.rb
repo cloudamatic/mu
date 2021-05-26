@@ -56,18 +56,12 @@ module MU
             end
           end
 
-          labels = Hash[@tags.keys.map { |k|
-            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
-          ]
-
           @cloud_id = @mu_name
           @config["listeners"].each { |l|
-            labels["name"] = MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup'])
             ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
               name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
               description: @deploy.deploy_id,
-              load_balancing_scheme: @config['scheme'],
-              labels: labels
+              load_balancing_scheme: @config['scheme']
             )
 
             if ["INTERNAL_MANAGED", "INTERNAL_SELF_MANAGED"].include?(@config['scheme'])
@@ -127,6 +121,10 @@ module MU
               end
             }
           end
+
+          cloud_desc.each_pair { |rule, desc|
+             MU.log "LoadBalancer #{@config['name']} (#{rule}) is at #{desc.ip_address}", MU::SUMMARY
+          }
         end
 
         @cloud_desc_cache = nil
@@ -180,9 +178,10 @@ module MU
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify
-          rules = cloud_desc(use_cache: false)
-          if rules
-            rules.each_pair { |name, rule|
+          descs = cloud_desc(use_cache: false).dup
+          rules = {}
+          if descs
+            descs.each_pair { |name, rule|
               rules[name] = MU.structToHash(rule, stringify_keys: true)
               rules[name].delete("label_fingerprint")
               rules[name].delete("fingerprint")
@@ -209,6 +208,7 @@ module MU
               b.timeout_sec = nil
               b.port_name = nil
             end
+            next if b.backends.map { |ext| ext.group }.include?(target)
             b.backends << MU::Cloud::Google.compute(:Backend).new(
               group: target
             )
@@ -513,7 +513,16 @@ module MU
               description: @deploy.deploy_id,
 # TODO this is where path_matchers, host_rules, and tests go (the sophisticated
 # Layer 7 stuff)
-              default_service: backend.self_link
+              default_service: backend.self_link,
+              path_matchers: [MU::Cloud::Google.compute(:PathMatcher).new(
+                name: "star",
+                default_service: backend.self_link,
+                paths: ["*"]
+              )],
+              host_rules: [MU::Cloud::Google.compute(:HostRule).new(
+                hosts: ["*"],
+                path_matcher: "star"
+              )]
             )
             MU.log "Creating #{region ? region+" " : ""}url map #{tg['name']}", details: urlmap_obj
 
@@ -552,7 +561,7 @@ module MU
           neg_name = @deploy.getResourceName(basename, max_length: 19, never_gen_unique: true).downcase
           begin
             if region
-              MU::Cloud::Google.compute(credentials: @config['credentials']).get_region_network_endpoint_group(@project_id, @config['region'], neg_name)
+              MU::Cloud::Google.compute(credentials: @config['credentials']).get_region_network_endpoint_group(@project_id, region, neg_name)
             else
               MU::Cloud::Google.compute(credentials: @config['credentials']).get_global_network_endpoint_group(@project_id, neg_name)
             end
