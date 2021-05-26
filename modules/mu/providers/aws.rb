@@ -411,8 +411,10 @@ end
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
-      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param deploy [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
+      # @param name [String]: File/object name
+      # @param credentials [String]
       def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
         require "aws-sdk-s3"
         name ||= deploy.deploy_id+"-secret"

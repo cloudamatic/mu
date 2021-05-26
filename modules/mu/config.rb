@@ -435,8 +435,8 @@ module MU
     # @param resource [Hash]
     # @param name [String]
     # @param type [String]
-    # @param phase [String]
-    # @param no_create_wait [Boolean]
+    # @param their_phase [String]
+    # @param my_phase [String]
     def self.addDependency(resource, name, type, their_phase: "create", my_phase: nil)
       if ![nil, "create", "groom"].include?(their_phase)
         raise MuError, "Invalid their_phase '#{their_phase}' while adding dependency #{type} #{name} to #{resource['name']}"

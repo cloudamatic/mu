@@ -576,6 +576,7 @@ module MU
           notify
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           MU.log "LoadBalancer #{@config['name']} is at #{cloud_desc.dns_name}", MU::SUMMARY
         end
@@ -655,8 +656,8 @@ module MU
         # Register a Server node with an existing LoadBalancer.
         #
         # @param id [String] A node or function to register.
-        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
-        def registerTarget(id, backends: nil, type: "instance")
+        # @param backends [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
+        def registerTarget(id, backends: nil)
           if @config['classic'] or !@config.has_key?("classic")
             MU.log "Registering #{id} to ELB #{@cloud_id}"
             MU::Cloud::AWS.elb(region: @region, credentials: @credentials).register_instances_with_load_balancer(

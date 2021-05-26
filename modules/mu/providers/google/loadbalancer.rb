@@ -109,6 +109,7 @@ module MU
 
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['targetgroups']
             @config['targetgroups'].each { |tg|

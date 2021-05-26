@@ -343,8 +343,10 @@ module MU
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
-      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param deploy [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
+      # @param name [String]: File/object name
+      # @param credentials [String]
       def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
         deploy_id = deploy.deploy_id
         name ||= deploy_id+"-secret"
