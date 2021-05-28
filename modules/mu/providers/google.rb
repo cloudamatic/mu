@@ -40,7 +40,7 @@ module MU
         # @return [String]
         def url
           desc = cloud_desc
-          (desc and desc.self_link) ? desc.self_link : nil
+          (desc and desc.respond_to?(:self_link) and desc.self_link) ? desc.self_link : nil
         end
       end
 
@@ -343,8 +343,10 @@ module MU
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
-      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param deploy [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
+      # @param name [String]: File/object name
+      # @param credentials [String]
       def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
         deploy_id = deploy.deploy_id
         name ||= deploy_id+"-secret"
@@ -1278,7 +1280,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise e
               end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
-              if e.message.match(/^quotaExceeded: Request rate/)
+              if e.message.match(/^quotaExceeded: Request rate|failedPrecondition.*?already in progress/)
                 if retries <= 10
                   sleep wait_backoff
                   retries += 1

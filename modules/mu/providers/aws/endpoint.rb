@@ -13,14 +13,54 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_rest_api(
+          desc = {
             name: @mu_name,
             description: @deploy.deploy_id,
             endpoint_configuration: {
-              types: ["REGIONAL"] # XXX expose in BoK ["REGIONAL", "EDGE", "PRIVATE"]
+              types: [@config['endpoint_type']]
             },
             tags: @tags
-          )
+          }
+
+# XXX NLB? what the fork?
+#          if @vpc
+#            MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_vpc_link(
+#              name: @mu_name,
+#              target_arns: [Required] The ARN of the network load balancer of the VPC targeted by the VPC link. The network load balancer must be owned by the same AWS account of the API owner.
+#              tags: @tags
+#            )  
+#          end
+
+# XXX this is incomplete; need to cover non-VPC case, IP ranges, and fall back on account number if all else fails
+          if @config['endpoint_type'] == "PRIVATE"
+            desc[:policy] = JSON.generate(
+              {
+                "Version" => "2012-10-17",
+                "Statement" => [
+                  {
+                    "Effect" => "Deny",
+                    "Principal" => "*",
+                    "Action" => "execute-api:Invoke",
+                    "Resource" => "arn:aws:execute-api:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:*/*/*/*",
+                    "Condition" => {
+                      "StringNotEquals" => {
+                        "aws =>sourceVpc": @vpc.cloud_id
+                      }
+                    }
+                  },
+                  {
+                    "Effect" => "Allow",
+                    "Principal" => "*",
+                    "Action" => "execute-api:Invoke",
+                    "Resource" => "arn:aws:execute-api:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:*/*/*/*"
+                  }
+                ]
+              }
+            )
+          end
+
+          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_rest_api(desc)
+
           @cloud_id = resp.id
           generate_methods(false)
         end
@@ -629,6 +669,11 @@ MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resource(
         def self.schema(_config)
           toplevel_required = []
           schema = {
+            "endpoint_type" => {
+              "default" => "REGIONAL",
+              "type" => "string",
+              "enum" => ["REGIONAL", "EDGE", "PRIVATE"]
+            },
             "domain_names" => {
               "type" => "array",
               "items" => {
@@ -791,7 +836,7 @@ MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resource(
                       "type" => {
                         "type" => "string",
                         "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a function), or the string +aws_generic+, which we can use in combination with +aws_generic_action+ to integrate with arbitrary AWS services.",
-                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }.sort)
+                        "enum" => ["aws_generic", "mock"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }.sort)
                       },
                       "aws_generic_action" => {
                         "type" => "string",
@@ -863,6 +908,23 @@ MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resource(
           "arn:#{MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws"}:execute-api:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@cloud_id}"
         end
 
+        # Go fish for the account-wide CloudWatch Logs role that grants APIG
+        # permissions to generate logs. This appears to have disappeared from
+        # the web console.
+        def self.findCloudWatchLogsRole(credentials = nil)
+          roles = MU::Cloud.resourceClass("AWS", "Role").find(credentials: credentials)
+          roles.each_pair { |id, r|
+            next if r.is_a?(Aws::IAM::Types::Policy)
+            attached_policies = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_role_policies(
+              role_name: r.role_name
+            ).attached_policies
+            if attached_policies.size == 1 and attached_policies.first.policy_arn == "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+              return r.arn
+            end
+          }
+          nil
+        end
+
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::endpoints}, bare and unvalidated.
         # @param endpoint [Hash]: The resource to process and validate
@@ -893,9 +955,22 @@ MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resource(
 
           if endpoint['access_logs']
             resp = MU::Cloud::AWS.apig(credentials: endpoint['credentials'], region: endpoint['region']).get_account
+
             if !resp.cloudwatch_role_arn
-              MU.log "Endpoint '#{endpoint['name']}' is configured to use CloudWatch Logs, but the account-wide API Gateway log role is not configured", MU::ERR, details: "https://aws.amazon.com/premiumsupport/knowledge-center/api-gateway-cloudwatch-logs/"
-              ok = false
+              logs_role = findCloudWatchLogsRole
+              if logs_role
+                MU.log "Updating API Gateway account-wide to add log role #{logs_role}", MU::NOTICE
+                MU::Cloud::AWS.apig(credentials: endpoint['credentials'], region: endpoint['region']).update_account(
+                  patch_operations: [
+                    op: "replace",
+                    path: "/cloudwatchRoleArn",
+                    value: logs_role
+                  ]
+                )
+              else
+                MU.log "Endpoint '#{endpoint['name']}' is configured to use CloudWatch Logs, but the account-wide API Gateway log role is not configured", MU::ERR, details: "https://aws.amazon.com/premiumsupport/knowledge-center/api-gateway-cloudwatch-logs/"
+                ok = false
+              end
             else
               roles = MU::Cloud::AWS::Role.find(cloud_id: resp.cloudwatch_role_arn, credentials: endpoint['credentials'], region: endpoint['region'])
               if roles.empty?

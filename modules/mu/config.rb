@@ -341,9 +341,9 @@ module MU
             end
           end
           if param.has_key?("cloudtype")
-            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'], flat_list: param['list'])
           else
-            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'], flat_list: param['list'])
           end
         }
       end
@@ -435,8 +435,8 @@ module MU
     # @param resource [Hash]
     # @param name [String]
     # @param type [String]
-    # @param phase [String]
-    # @param no_create_wait [Boolean]
+    # @param their_phase [String]
+    # @param my_phase [String]
     def self.addDependency(resource, name, type, their_phase: "create", my_phase: nil)
       if ![nil, "create", "groom"].include?(their_phase)
         raise MuError, "Invalid their_phase '#{their_phase}' while adding dependency #{type} #{name} to #{resource['name']}"
@@ -828,7 +828,7 @@ module MU
         begin
           JSON::Validator.validate!(myschema, plain_cfg)
         rescue JSON::Schema::ValidationError
-          pp plain_cfg
+          puts PP.pp(plain_cfg, '').bold
           # Use fully_validate to get the complete error list, save some time
           errors = JSON::Validator.fully_validate(myschema, plain_cfg)
           realerrors = []

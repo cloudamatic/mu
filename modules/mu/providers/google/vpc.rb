@@ -457,7 +457,7 @@ end
           end
           
           if name
-            subnet_mu_name ||= @config['scrub_mu_isms'] ? @cloud_id+name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(name, max_length: 61))
+            subnet_mu_name ||= (@config['scrub_mu_isms'] or !@deploy) ? @cloud_id+name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(name, max_length: 61))
           end
 
           MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block}, region: #{region}, subnet_mu_name: #{subnet_mu_name})", MU::DEBUG, details: caller[0]

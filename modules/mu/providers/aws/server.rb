@@ -855,7 +855,7 @@ module MU
               raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
             end
             @loadbalancers.each { |lb|
-              lb.registerNode(@cloud_id)
+              lb.registerTarget(@cloud_id)
             }
           end
           MU.log %Q{Server #{@config['name']} private IP is #{@deploydata["private_ip_address"]}#{@deploydata["public_ip_address"] ? ", public IP is "+@deploydata["public_ip_address"] : ""}}, MU::SUMMARY
@@ -1250,7 +1250,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses
           end
           resp.addresses.each { |address|
-            return address if (address.network_interface_id.nil? or address.network_interface_id.empty?) or !@eips_used.include?(address.public_ip)
+            return address if (address.network_interface_id.nil? or address.network_interface_id.empty?) and !@eips_used.include?(address.public_ip)
           }
           if !ip.nil?
             mode = classic ? "EC2 Classic" : "VPC"
@@ -1401,7 +1401,7 @@ module MU
               if @eips_used.include?(ip)
                 is_free = false
                 resp.addresses.each { |address|
-                  if address.public_ip == ip and (address.instance_id.nil? and address.network_interface_id.nil?) or address.instance_id == instance_id
+                  if address.public_ip == ip and (address.instance_id.nil? and address.association.nil?) or address.instance_id == instance_id
                     @eips_used.delete(ip)
                     is_free = true
                   end
@@ -1434,8 +1434,11 @@ module MU
                 allocation_ids: [elastic_ip.allocation_id]
               )
               first_addr = resp.addresses.first
-              if first_addr and first_addr.instance_id != instance_id
-                raise MuError, "Tried to associate #{elastic_ip.public_ip} with #{instance_id}, but it's already associated with #{first_addr.instance_id}!"
+              if first_addr and !first_addr.association_id.nil? and first_addr.instance_id != instance_id
+                ifaces = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
+                  filters: [{name: "association.allocation-id", values: [elastic_ip.allocation_id]}]
+                ).data.network_interfaces
+                raise MuError.new "Tried to associate #{elastic_ip.public_ip} with #{instance_id}, but it's already associated with #{first_addr.instance_id}!", details: ifaces
               end
             end
           }

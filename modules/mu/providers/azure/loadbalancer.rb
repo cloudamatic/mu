@@ -50,8 +50,8 @@ module MU
         # Register a Server node with an existing LoadBalancer.
         #
         # @param instance_id [String] A node to register.
-        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
-        def registerNode(instance_id, targetgroups: nil)
+        # @param backends [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
+        def registerTarget(instance_id, backends: nil)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or

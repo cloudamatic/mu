@@ -85,6 +85,7 @@ module MU
             changes[k] = v if v != old_props[k]
           }
           if !changes.empty?
+            wait_for_active
             MU.log "Updating Lambda #{@mu_name}", MU::NOTICE, details: changes
             MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).update_function_configuration(new_props)
           end
@@ -129,6 +130,25 @@ module MU
           
           end 
 
+          # If we have a loadbalancer configured, attach us to it
+          if !@config['loadbalancers'].nil?
+            if @loadbalancers.nil?
+              raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
+            end
+
+            @loadbalancers.each { |lb|
+              if !lb.targetgroups
+                MU.retrier([], max: 6, wait: 15, loop_if: Proc.new { !lb.targetgroups }) {
+                  lb.cloud_desc(use_cache: false)
+                }
+              end
+              lb.targetgroups.each_pair { |tg_name, tg|
+                addTrigger(tg.target_group_arn, "elasticloadbalancing", tg_name)
+              }
+              lb.registerTarget(arn)
+            }
+          end
+
           if @config['invoke_on_completion']
             invoke_params = {
               function_name: @cloud_id,
@@ -158,9 +178,34 @@ module MU
             statement_id: "#{calling_service}-#{calling_name.gsub(/[^a-z0-9\-_]/i, '_')}",
           }
 
+          # Just return if we already have this condition
+          begin
+            pol = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_policy(function_name: @cloud_id).policy
+            if pol
+              pol = JSON.parse(pol)
+              pol["Statement"].each { |s|
+                if !s["Condition"] or !s["Condition"]["ArnLike"] or
+                   !s["Condition"]["ArnLike"]["AWS:SourceArn"] or !s["Effect"] or
+                   !s["Principal"] or !s["Action"]
+                  next
+                end
+                if s["Effect"] == "Allow" and
+                   s["Sid"] == trigger[:statement_id] and
+                   s["Principal"] == { "Service" => trigger[:principal] } and
+                   s["Action"] == trigger[:action] and
+                   s["Condition"]["ArnLike"]["AWS:SourceArn"] == trigger[:source_arn]
+                  return
+
+                end
+              }
+            end
+          rescue Aws::Lambda::Errors::ResourceNotFoundException
+          end
+
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
+            MU.log "Adding permission for Lambda function #{@cloud_id}", MU::NOTICE, details: trigger
             MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).add_permission(trigger)
           rescue Aws::Lambda::Errors::ValidationException => e
             MU.log e.message+" (calling_arn: #{calling_arn}, calling_service: #{calling_service}, calling_name: #{calling_name})", MU::ERR, details: trigger
@@ -416,7 +461,6 @@ module MU
 
           begin
             pol = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_policy(function_name: @cloud_id).policy
-MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV-2020080900-LN-ON-DEMAND-SCANNER"
             if pol
               bok['triggers'] ||= []
               JSON.parse(pol)["Statement"].each { |s|
@@ -619,13 +663,31 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
           end
 
           if function['role']['name']
-            MU::Config.addDependency(function, function['role']['name'], "role")
+            MU::Config.addDependency(function, function['role']['name'], "role", my_phase: "groom", their_phase: "groom")
+          end
+
+          if !function["loadbalancers"].nil?
+            function["loadbalancers"].each { |lb|
+              lb["name"] ||= lb["concurrent_load_balancer"]
+              if lb["name"]
+                MU::Config.addDependency(function, lb["name"], "loadbalancer")
+              end
+            }
           end
 
           ok
         end
 
         private
+
+        def wait_for_active
+          check = Proc.new {
+            resp = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_function(function_name: @cloud_id)
+            resp.configuration.state != "Active"
+          }
+          MU.retrier([], max: 40, wait: 15, loop_if: check) {
+          }
+        end
 
         def get_properties
           role_obj = MU::Config::Ref.get(@config['role']).kitten(@deploy, cloud: "AWS")
@@ -724,7 +786,7 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
               raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
             end
             lambda_properties[:vpc_config] = {
-              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
+              :subnet_ids => mySubnets.map { |s| s.cloud_id },
               :security_group_ids => sgs
             }
           end

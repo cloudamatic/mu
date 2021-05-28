@@ -120,7 +120,7 @@ module example.com/cloudfunction
         def groom
           desc = {}
 
-          func_obj = buildDesc
+          func_obj = buildDesc(true)
 
           labels = Hash[@tags.keys.map { |k|
             [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
@@ -161,6 +161,13 @@ module example.com/cloudfunction
                cloud_desc.event_trigger.resource != @config['triggers'].first['resource']
               need_update = true
             end
+          elsif !cloud_desc.https_trigger
+            need_update = true
+          end
+
+          if (@config['internal_only'] and cloud_desc.ingress_settings != "ALLOW_INTERNAL_ONLY") or
+             (!@config['internal_only'] and cloud_desc.ingress_settings != "ALLOW_ALL")
+            need_update = true
           end
 
           current = Dir.mktmpdir(@mu_name+"-current") { |dir|
@@ -206,6 +213,7 @@ module example.com/cloudfunction
           end
 
           if need_update
+            MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
             MU.log "Updating Cloud Function #{@cloud_id}", MU::NOTICE, details: func_obj
             begin
               MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
@@ -233,6 +241,71 @@ module example.com/cloudfunction
           if tempfile
             tempfile.close
             tempfile.unlink
+          end
+
+          policy = MU::Cloud::Google.function(credentials: @credentials).get_project_location_function_iam_policy(@cloud_id)
+
+          if @config['allow_unauthenticated'] and !allowsUnauthencated?
+            policy ||= MU::Cloud::Google.function(:Policy).new(
+              bindings: []
+            )
+            policy.bindings ||= []
+            policy.bindings << MU::Cloud::Google.function(:Binding).new(
+              members: ["allUsers"],
+              role: "roles/cloudfunctions.invoker"
+            )
+
+            pol_req = MU::Cloud::Google.function(:SetIamPolicyRequest).new(
+              policy: policy
+            )
+            MU.log "Enabling anonymous invocation of Cloud Function #{@mu_name}", MU::NOTICE
+            MU::Cloud::Google.function(credentials: @credentials).set_function_iam_policy(@cloud_id, pol_req)
+          elsif !@config['allow_unauthenticated'] and allowsUnauthencated?
+            policy.bindings.reject! { |b|
+              b.members.include?("allUsers") and b.role == "roles/cloudfunctions.invoker"
+            }
+            pol_req = MU::Cloud::Google.function(:SetIamPolicyRequest).new(
+              policy: policy
+            )
+            MU.log "Disabling anonymous invocation of Cloud Function #{@mu_name}", MU::NOTICE
+            MU::Cloud::Google.function(credentials: @credentials).set_function_iam_policy(@cloud_id, pol_req)
+          end
+
+          # If we have a loadbalancer configured, attach us to it
+          if !@config['loadbalancers'].nil?
+            if @loadbalancers.nil?
+              raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
+            end
+
+            neg_name = @deploy.getResourceName(@config["name"], max_length: 19, never_gen_unique: true).downcase
+            neg_desc = begin
+              MU::Cloud::Google.compute(credentials: @config['credentials']).get_region_network_endpoint_group(@project_id, @config['region'], neg_name)
+            rescue ::Google::Apis::ClientError => e
+              raise e if e.message !~ /notFound:/
+              neg_obj = MU::Cloud::Google.compute(:NetworkEndpointGroup).new(
+                name: neg_name,
+                description: @deploy.deploy_id,
+                cloud_function: MU::Cloud::Google.compute(:NetworkEndpointGroupCloudFunction).new(
+                  function: @cloud_id.gsub(/.*?\//, '')
+                ),
+                network_endpoint_type: "SERVERLESS"
+              )
+              MU.log "Creating Network Endpoint Group #{neg_name}", details: neg_obj
+              MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_network_endpoint_group(@project_id, @config['region'], neg_obj)
+              retry
+            end
+
+            @loadbalancers.each { |lb|
+#              if !lb.targetgroups
+#                MU.retrier([], max: 6, wait: 15, loop_if: Proc.new { !lb.targetgroups }) {
+#                  lb.cloud_desc(use_cache: false)
+#                }
+#              end
+#              lb.targetgroups.each_pair { |tg_name, tg|
+#                addTrigger(tg.target_group_arn, "elasticloadbalancing", tg_name)
+#              }
+              lb.registerTarget(neg_desc.self_link)
+            }
           end
 
         end
@@ -330,6 +403,12 @@ module example.com/cloudfunction
           bok["handler"] = cloud_desc.entry_point
           bok["timeout"] = cloud_desc.timeout.gsub(/[^\d]/, '').to_i
 
+          if cloud_desc.ingress_settings and cloud_desc.ingress_settings == "ALLOW_INTERNAL_ONLY"
+            bok['internal_only'] = true
+          else
+            bok['internal_only'] = false
+          end
+
           if cloud_desc.vpc_connector
             bok["vpc_connector"] = cloud_desc.vpc_connector
           elsif cloud_desc.network
@@ -350,7 +429,7 @@ module example.com/cloudfunction
               type: "vpcs"
             )
           end
-
+          
           if cloud_desc.environment_variables and cloud_desc.environment_variables.size > 0
             bok['environment_variable'] = cloud_desc.environment_variables.keys.map { |k| { "key" => k, "value" => cloud_desc.environment_variables[k] } }
           end
@@ -372,6 +451,9 @@ module example.com/cloudfunction
           bok['code'] = {
             'zip_file' => codefile
           }
+
+
+          bok['allow_unauthenticated'] = allowsUnauthencated?
 
           bok
         end
@@ -410,6 +492,16 @@ module example.com/cloudfunction
             "vpc_connector" => {
               "type" => "string",
               "description" => "+DEPRECATED+ VPC Connector to attach, of the form +projects/my-project/locations/some-region/connectors/my-connector+. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
+            },
+            "allow_unauthenticated" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Only applicable for HTTPS-triggered functions; allows function invocation without credentials"
+            },
+            "internal_only" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Permit only traffic from VPC networks in the same project or VPC SC perimeter"
             },
             "vpc_connector_allow_all_egress" => {
               "type" => "boolean",
@@ -473,11 +565,13 @@ module example.com/cloudfunction
         # @return [String]: The Cloud Storage URL to the result
         def self.uploadPackage(zipfile, filename, credentials: nil)
           bucket = MU::Cloud::Google.adminBucketName(credentials)
+
           obj_obj = MU::Cloud::Google.storage(:Object).new(
             content_type: "application/zip",
             name: filename
           )
 
+          MU.log "Uploading #{zipfile} to #{bucket}/#{filename}"
           MU::Cloud::Google.storage(credentials: credentials).insert_object(
             bucket,
             obj_obj,
@@ -574,12 +668,33 @@ module example.com/cloudfunction
 #            ok = false
 #          end
 
+          if !function["loadbalancers"].nil?
+            function["loadbalancers"].each { |lb|
+              lb["name"] ||= lb["concurrent_load_balancer"]
+              if lb["name"]
+                MU::Config.addDependency(function, lb["name"], "loadbalancer")
+              end
+            }
+          end
+
           ok
         end
 
         private
 
-        def buildDesc
+        def allowsUnauthencated?
+          policy = MU::Cloud::Google.function(credentials: @credentials).get_project_location_function_iam_policy(@cloud_id)
+          if policy and policy.bindings
+            policy.bindings.each { |b|
+              if b.members.include?("allUsers") and b.role == "roles/cloudfunctions.invoker"
+                return true
+              end
+            }
+          end
+          false
+        end
+
+        def buildDesc(no_upload = false)
           labels = Hash[@tags.keys.map { |k|
             [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
           ]
@@ -631,6 +746,12 @@ module example.com/cloudfunction
             desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
           end
 
+          if @config["internal_only"]
+            desc[:ingress_settings] = "ALLOW_INTERNAL_ONLY"
+          else
+            desc[:ingress_settings] = "ALLOW_ALL"
+          end
+
 
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
@@ -658,7 +779,12 @@ module example.com/cloudfunction
             else
               MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
             end
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+            bucket = MU::Cloud::Google.adminBucketName(credentials)
+
+            desc[:source_archive_url] = "gs://#{bucket}/#{@mu_name}-cloudfunction.zip"
+            if !no_upload
+              MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+            end
 
             if tempfile
               tempfile.close

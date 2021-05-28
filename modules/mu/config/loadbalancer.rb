@@ -443,13 +443,14 @@ module MU
             l["targetgroup"] = tgname
             tg = { 
               "name" => tgname,
-              "proto" => l["instance_protocol"],
-              "port" => l["instance_port"]
+              "proto" => l["instance_protocol"] || l["lb_protocol"],
+              "port" => l["instance_port"] || l["lb_port"]
             }
             if l["redirect"]
               tg["proto"] ||= l["redirect"]["protocol"]
               tg["port"] ||= l["redirect"]["port"]
             end
+            tg["vpc"] = l["vpc"] if l["vpc"]
             l['healthcheck'] ||= lb['healthcheck'] if lb['healthcheck']
             if l["healthcheck"]
               hc_target = l['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
@@ -460,6 +461,18 @@ module MU
               MU.log "Converting classic-style ELB health check target #{l['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
             end
             lb["targetgroups"] << tg
+          }
+        elsif lb['listeners'].nil?
+          # well ok, manufacture listeners out of targetgroups then?
+          lb['listeners'] ||= []
+          lb["targetgroups"].each { |tg|
+            listener = {
+              "targetgroup" => tg['name'],
+              "lb_protocol" => tg["proto"],
+              "lb_port" => tg["port"]
+            }
+            listener["vpc"] = tg["vpc"] if tg["vpc"]
+            lb['listeners'] << listener
           }
         else
           lb['listeners'].each { |l|
@@ -476,6 +489,15 @@ module MU
             end
           }
         end
+
+        lb['targetgroups'].each { |tg|
+          if tg['target']
+            tg['target']['cloud'] ||= lb['cloud']
+            if tg['target']['name']
+              MU::Config.addDependency(lb, tg['target']['name'], tg['target']['type'], their_phase: "create", my_phase: "groom")
+            end
+          end
+        }
 
         lb['listeners'].each { |l|
           if !l['rules'].nil? and l['rules'].size > 0

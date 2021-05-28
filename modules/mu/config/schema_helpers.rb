@@ -465,6 +465,11 @@ module MU
                     "type" => "string",
                     "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
                   },
+                  "list" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "Treat the value as a comma-separated list to be converted into an array of strings. This will be ignored if {list_of} is set."
+                  },
                   "prettyname" => {
                     "type" => "string",
                     "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
