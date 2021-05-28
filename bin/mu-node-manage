@@ -35,6 +35,7 @@ Usage:
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
   opt :winrm, "Force WinRM connection. Disable SSH fallback", :require => false, :default => false, :type => :boolean
   opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
+  opt :fetchpass, "Retrieve the vault-stored passwords of all matching Windows nodes", :require => false, :default => false, :type => :boolean
 end
 
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
@@ -47,7 +48,7 @@ end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Optimist::die(:platform, "--platform must be one of: linux, windows")
 end
-if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
+if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given] and !$opts[:fetchpass]
   $opts[:list] = true
 end
 if $opts[:override_chef_runlist] and !$opts[:mode_given]
@@ -157,7 +158,7 @@ do_nodes.sort!
 
 #do_nodes.sort!{ |x,y| (x[$opts[:info]] <=> y[$opts[:info]]) }
 
-#puts node_attributes[0]
+
 
 if $opts[:list]
   if $opts[:info].eql? 'nodename'
@@ -678,8 +679,28 @@ def chefUpgrade(deploys = MU::MommaCat.listDeploys, nodes = [])
   end
 end
 
+def fetchPasswords(deploys = MU::MommaCat.listDeploys, nodes = [])
+  deploys.each { |muid|
+    mommacat = MU::MommaCat.new(muid)
+    mommacat.listNodes.each_pair { |nodename, server|
+      next if server['conf'].nil?
+      next if nodes.size > 0 and !nodes.include?(nodename)
+      server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+      next if !server_obj.windows?
+
+      begin
+        pw = server_obj.groomer.getSecret(vault: nodename, item: "windows_admin_password")
+        puts nodename+" username: "+server_obj.config['windows_admin_username']+" password: "+pw
+      rescue Exception
+      end
+    }
+  }
+end
+
 if $opts[:xecute]
   runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
+elsif $opts[:fetchpass]
+  fetchPasswords(do_deploys, do_nodes)
 elsif $opts[:mode] == "certs"
   sslCerts(do_deploys, do_nodes)
 elsif $opts[:mode] == "groom"
