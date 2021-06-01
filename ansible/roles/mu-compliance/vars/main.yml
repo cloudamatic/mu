@@ -1,0 +1,4 @@
+---
+OSCAP_VERSION: "1.3.0"
+OSCAP_INSTALLER: "OpenSCAP-{{ OSCAP_VERSION }}-win32.msi"
+OSCAP_URL: "https://github.com/OpenSCAP/openscap/releases/download/{{ OSCAP_VERSION }}/{{ OSCAP_INSTALLER }}"

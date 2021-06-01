@@ -34,3 +34,6 @@
 - name: "Tell EC2Launch to run on next boot (Windows 2016+)"
   when: ((ansible_facts['distribution_major_version'] | int) >= 10 and mu_build_image is defined and mu_build_image == True)
   win_shell: C:\ProgramData\Amazon\EC2-Windows\Launch\Scripts\InitializeInstance.ps1 -Schedule
+
+- name: Allow RDP to use local user authentication
+  win_shell: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0

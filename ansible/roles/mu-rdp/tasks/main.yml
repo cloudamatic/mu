@@ -1,0 +1,9 @@
+---
+- name: Allow traffic to port 3389
+  win_shell: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+- name: Enable RDP
+  win_shell: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
+
+- name: Allow RDP to use local user authentication
+  win_shell: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0

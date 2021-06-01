@@ -1,0 +1,45 @@
+---
+- name: Ensure existence of c:/temp
+  win_file:
+    path: c:/temp
+    state: directory
+
+- name: Check for existence of OpenSCAP
+  win_shell: Get-ChildItem -Name "c:/Program Files (x86)/OpenSCAP {{ OSCAP_VERSION }}/"
+  ignore_errors: true
+  no_log: true
+  register: openscap_exists
+
+- name: Install vcredist
+  win_package:
+    path: https://aka.ms/vs/16/release/vc_redist.x86.exe
+    arguments:
+    - /install
+    - /passive
+    - /norestart
+
+- name: Download OpenSCAP installer
+  when: openscap_exists is failed
+  win_get_url:
+    url: "{{ OSCAP_URL }}"
+    dest: "c:/temp/{{ OSCAP_INSTALLER }}"
+
+- name: "Install OpenSCAP"
+  when: openscap_exists is failed
+  win_package:
+    path: "c:/temp/{{ OSCAP_INSTALLER }}"
+    arguments:
+    - /quiet
+    - /norestart
+
+- name: "Copy scan benchmarks"
+  win_copy:
+    src: U_MS_Windows_Server_2016_V2R1_STIG_SCAP_1-2_Benchmark.xml
+    dest: "c:/temp"
+
+- debug: var=ansible_facts
+
+- name: "run a scan, why not {{ ansible_distribution }} -- {{ ansible_distribution_version }} -- {{ ansible_distribution_major_version  }} -- {{ ansible_distribution_release  }}"
+  win_shell: |
+    cd c:/temp
+    oscap --report report.txt xccdf eval U_MS_Windows_Server_2016_V2R1_STIG_SCAP_1-2_Benchmark.xml
