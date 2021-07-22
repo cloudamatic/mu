@@ -221,6 +221,7 @@ if !node['update_nagios_only']
   apache2_install "" do
     docroot_dir "/var/www/html"
     modules %w{status alias auth_basic authn_core authn_file authz_core authz_groupfile authz_host authz_user autoindex deflate dir env mime negotiation setenvif log_config logio unixd systemd headers proxy proxy_http rewrite ssl ldap authnz_ldap slotmem_shm}
+    listen [80, 443, 8443]
   end
   package "mod_ldap"
 
