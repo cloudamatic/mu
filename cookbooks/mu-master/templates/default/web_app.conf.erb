@@ -20,6 +20,7 @@
 
   ProxyPreserveHost on
   AllowEncodedSlashes off
+  SSLProxyCheckPeerName off
   
   # Scratchpad, the Mu secret-sharer
   ProxyPass /scratchpad https://localhost:<%= MU.mommaCatPort.to_s %>/scratchpad
