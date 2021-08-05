@@ -941,7 +941,7 @@ retry
         MU::MommaCat.lock("vault-#{vault}", false, true)
         MU.log "Granting #{host} access to #{vault} #{item}"
         begin
-          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{host}"])
+          ::Chef::Knife.run(['vault', 'update', vault, item, "--clients", "#{host}"])
         rescue StandardError => e
           MU.log e.inspect, MU::ERR, details: caller
         end
