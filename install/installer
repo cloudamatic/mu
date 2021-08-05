@@ -2,7 +2,7 @@
 
 BOLD=`tput bold`
 NORM=`tput sgr0`
-CHEF_CLIENT_VERSION="16.9.29"
+CHEF_CLIENT_VERSION="16.14.1"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="master"
   mydir="`dirname $0`"

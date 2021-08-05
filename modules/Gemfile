@@ -22,4 +22,3 @@ gem 'chef-sugar'
 gem 'ffi-libarchive' # needed to keep berkshelf from breaking on Mac tarballs
 gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"
 gem 'foodcritic', '~> 14.1.0'
-gem 'chef-dk', '~> 4.13.3'
