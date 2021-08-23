@@ -156,7 +156,7 @@ module MU
                   :config => false,
                   :keys_only => true,
                   :keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
-                  :verify_host_key => false,
+                  :verify_host_key => :never, # grr
                   #           :verbose => :info,
                   :host_key => "ssh-rsa",
                   :port => 22,
@@ -172,7 +172,7 @@ module MU
                   :config => false,
                   :keys_only => true,
                   :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
-                  :verify_host_key => false,
+                  :verify_host_key => :never, # grr
                   #           :verbose => :info,
                   :host_key => "ssh-rsa",
                   :port => 22,
