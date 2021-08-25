@@ -1,0 +1,36 @@
+---
+- name: add yum repo for ElasticSearch
+  yum_repository:
+    name: elasticsearch
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    baseurl: https://artifacts.elastic.co/packages/7.x/yum
+    description: Elasticsearch repository for 7.x packages
+
+- name: install elasticsearch and related packages
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+  - elasticsearch
+  - kibana
+
+- name: ElasticSearch config files in /etc/elasticsearch
+  copy:
+    dest: "/etc/elasticsearch/{{ item }}"
+    src: "{{ item }}"
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  become: yes
+  with_items:
+  - jvm.options
+  - elasticsearch.yml
+
+- name: Kibana config files in /etc/kibana
+  copy:
+    dest: "/etc/kibana/{{ item }}"
+    src: "{{ item }}"
+    mode: 0640
+  become: yes
+  with_items:
+  - kibana.yml

@@ -1,0 +1,33 @@
+---
+- name: add yum repo for ElasticSearch
+  yum_repository:
+    name: elasticsearch
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    baseurl: https://artifacts.elastic.co/packages/7.x/yum
+    description: Elasticsearch repository for 7.x packages
+
+- name: install logstash and related packages
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+  - logstash
+  - apm-server
+
+- name: Logstash config files in /etc/logstash
+  copy:
+    dest: "/etc/logstash/{{ item }}"
+    src: "{{ item }}"
+    mode: 0644
+  become: yes
+  with_items:
+  - jvm.options
+  - logstash.yml
+
+- name: APM Server config
+  template:
+    src: apm-server.yml.j2
+    dest: /etc/apm-server/apm-server.yml
+    owner: root
+    group: apm-server
+    mode: 0644

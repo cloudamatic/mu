@@ -1,0 +1,26 @@
+apm-server:
+  host: "localhost:8200"
+  concurrent_requests: 5
+  rum:
+    enabled: true
+
+output.elasticsearch:
+  hosts: [
+{%- for node,meta in mu_deployment['servers']['logsearch'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["private_ip_address"] %}
+"https://{{ v }}:9200"
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}]
+  username: "elastic"
+  password: "123456"
+  ssl:
+    enabled: true
+    verification_mode: none
+    certificate_authorities: ["/etc/apm-server/elasticsearch-ca.pem"]
+
+#queue.mem.events: 4096
+
+max_procs: 4

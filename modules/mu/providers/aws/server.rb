@@ -348,7 +348,10 @@ module MU
             raise MuError.new e.message, details: mysubnet_ids
           end
           instance_descriptor[:subnet_id] = (mysubnet_ids - bad_subnets).sample
-          MU.log "One or more subnets does not support this instance type, attempting with #{instance_descriptor[:subnet_id]} instead", MU::WARN, details: bad_subnets
+          if instance_descriptor[:subnet_id].nil?
+            raise MuError.new "Specified subnet#{bad_subnets.size > 1 ? "s do" : " does"} not support instance type #{instance_descriptor[:instance_type]}", details: bad_subnets
+          end
+          MU.log "One or more subnets does not support instance type #{instance_descriptor[:instance_type]}, attempting with #{instance_descriptor[:subnet_id]} instead", MU::WARN, details: bad_subnets
           retry
         rescue Aws::EC2::Errors::InvalidRequest => e
           MU.log e.message, MU::ERR, details: instance_descriptor
