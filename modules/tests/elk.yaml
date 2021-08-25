@@ -1,0 +1,39 @@
+# groomers: Ansible
+---
+appname: smoketest
+vpcs:
+- name: wrapper
+servers: 
+- name: logstash
+  platform: centos7
+  groomer: Ansible
+  vpc:
+    name: wrapper
+  size: t3.medium
+  run_list:
+  - mu-logstash
+#<% if cloud != "AWS" %>
+- name: logsearch
+  platform: centos7
+  groomer: Ansible
+  vpc:
+    name: wrapper
+  size: m5.large
+  run_list:
+  - mu-elastic
+#<% else %>
+#search_domains:
+#- name: logsearch
+#  elasticsearch_version: '7.4'
+#  instance_count: 1
+#  instance_type: r5.large.elasticsearch
+#  ebs_size: 10
+#  ebs_type: gp2
+#  access_policies:
+#    Version: '2012-10-17'
+#    Statement:
+#    - Effect: Allow
+#      Principal:
+#        AWS: "*"
+#      Action: es:ESHttp*
+#<% end %>
