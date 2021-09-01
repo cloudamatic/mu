@@ -58,6 +58,9 @@ module MU
             require 'chef/knife/ssh'
             require 'mu/monkey_patches/chef_knife_ssh'
             require 'chef/knife/bootstrap'
+            require 'chef/knife/bootstrap/train_connector'
+            require 'chef/knife/bootstrap/chef_vault_handler'
+            require 'chef/knife/bootstrap/client_builder'
             require 'chef/knife/node_delete'
             require 'chef/knife/client_delete'
             require 'chef/knife/data_bag_delete'
@@ -618,8 +621,10 @@ module MU
             kb.name_args = "#{canonical_addr}"
             kb.config[:distro] = 'chef-full'
             kb.config[:ssh_user] = ssh_user
+            kb.config[:ssh_verify_host_key] = :accept_new
             kb.config[:forward_agent] = ssh_user
             kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
+            kb.config[:ssh_identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
           else
             kb = ::Chef::Knife::BootstrapWindowsWinrm.new([@server.mu_name])
             kb.name_args = [@server.mu_name]
@@ -628,6 +633,7 @@ module MU
             kb.config[:winrm_port] = 5986
             kb.config[:session_timeout] = timeout
             kb.config[:operation_timeout] = timeout
+#            kb.config[:bootstrap_curl_options] = ""
             if retries % 2 == 0
               kb.config[:host] = canonical_addr
               kb.config[:winrm_authentication_protocol] = :basic
@@ -658,6 +664,7 @@ module MU
           kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
           kb.config[:run_list] = run_list
           kb.config[:chef_node_name] = @server.mu_name
+          kb.config[:bootstrap_product] = "chef"
           kb.config[:bootstrap_version] = MU.chefVersion
           # XXX key off of MU verbosity level
           kb.config[:log_level] = :debug
