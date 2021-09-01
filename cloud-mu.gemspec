@@ -50,7 +50,7 @@ EOF
   s.add_runtime_dependency 'inifile', "~> 3.0"
   s.add_runtime_dependency 'json-schema', "~> 2.8"
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
-  s.add_runtime_dependency 'net-ssh', "~> 4.2"
+  s.add_runtime_dependency 'net-ssh', "~> 5.1"
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'netaddr', '~> 2.0'
   s.add_runtime_dependency 'nokogiri', "~> 1.10"

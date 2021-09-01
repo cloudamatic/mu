@@ -16,11 +16,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-chef_gem "aws-sdk" do
-  compile_time true
-  version "3.0.1"
-  action :install
-end
+# well apparently these versions need to be pegged to whatever Chef is using
+# internally (as of Chef 16.14.1, aws-sdk-core 3.117) or 
+awsgems = {
+  "aws-sdk" => "~> 3.117",
+  "aws-sdk-s3" => "~> 1.96",
+  "aws-sdk-ec2" => nil
+}
+
+awsgems.each_pair { |g, v|
+  chef_gem g do
+    version v if !v.nil?
+    compile_time true
+    action :install
+  end
+}
 
 if platform_family?("rhel") or platform_family?("amazon")
   if node['platform_version'].to_i == 6

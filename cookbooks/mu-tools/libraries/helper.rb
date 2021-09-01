@@ -16,13 +16,13 @@ module Mutools
       base_url = "http://metadata.google.internal/computeMetadata/v1"
       begin
         Timeout.timeout(2) do
-          response = open(
+          response = URI.open(
             "#{base_url}/#{param}",
             "Metadata-Flavor" => "Google"
           ).read
           return response
         end
-      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT => e
         # This is fairly normal, just handle it gracefully
       end
 
@@ -36,10 +36,12 @@ module Mutools
       base_url = "http://169.254.169.254/latest"
       begin
         Timeout.timeout(2) do
-          response = open("#{base_url}/#{param}").read
+          response = URI.open("#{base_url}/#{param}").read
           return response
         end
-      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+        require 'aws-sdk-ec2'
+        require 'aws-sdk-s3'
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT => e
         # This is fairly normal, just handle it gracefully
       end
       nil
@@ -136,7 +138,7 @@ module Mutools
     @region = nil
     def set_aws_cfg_params
       begin
-        require 'aws-sdk'
+        require 'aws-sdk-core'
         instance_identity = get_aws_metadata("dynamic/instance-identity/document")
         return false if instance_identity.nil? # Not in AWS, most likely
         @region = JSON.parse(instance_identity)["region"]
@@ -153,7 +155,8 @@ module Mutools
       rescue OpenURI::HTTPError, Timeout::Error, SocketError, JSON::ParserError
         Chef::Log.info("This node isn't in Amazon Web Services, skipping AWS config")
         return false
-      rescue LoadError
+      rescue LoadError => e
+      puts e.inspect
         Chef::Log.info("aws-sdk-gem hasn't been installed yet!")
         return false
       end
@@ -257,10 +260,14 @@ module Mutools
       filename = mu_get_tag_value("MU-ID")+"-secret"
 
       if cloud == "AWS"
+        include_recipe "mu-tools::aws_api"
+        require 'aws-sdk-s3'
         resp = nil
         begin
           Chef::Log.info("Fetch deploy secret from s3://#{bucket}/#{filename}")
-          resp = s3.get_object(bucket: bucket, key: filename)
+          set_aws_cfg_params
+        @s3 ||= Aws::S3::Client.new(region: @region)
+          resp = @s3.get_object(bucket: bucket, key: filename)
         rescue ::Aws::S3::Errors::PermanentRedirect => e
           tmps3 = Aws::S3::Client.new(region: "us-east-1")
           resp = tmps3.get_object(bucket: bucket, key: filename)
