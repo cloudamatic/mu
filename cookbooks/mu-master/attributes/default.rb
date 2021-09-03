@@ -47,7 +47,7 @@ else
 end
 #default['nagios']['server']['server_alias'] = node[:fqdn]+", "+node[:hostname]+", "+node['local_hostname']+", "+node['local_ipv4']+", "+node['public_hostname']+", "+node['public_ipv4']
 default["nagios"]["log_dir"] = "/var/log/httpd"
-default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
+default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/nagios/"
 default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['group'] = "nagios"

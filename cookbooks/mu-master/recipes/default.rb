@@ -231,7 +231,12 @@ if !node['update_nagios_only']
   apache2_mod_cgid ""
   apache2_mod_ssl ""
 
+  link "/usr/lib64/httpd/modules/mod_php5.so" do
+    to "/usr/lib64/httpd/modules/libphp5.so"
+  end
   apache2_mod "php"
+  apache2_module "php5" 
+  apache2_module "cgi" 
   apache2_default_site "" do
     action :enable
     notifies :start, "service[apache2]", :delayed
