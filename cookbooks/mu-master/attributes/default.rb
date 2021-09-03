@@ -52,6 +52,7 @@ default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['group'] = "nagios"
 default['nagios']['server']['install_method'] = 'source'
+default['nagios']['monitored_environments'] = ["dev", "prod"]
 default['nagios']['multi_environment_monitoring'] = true
 default['nagios']['users_databag'] = "nagios_users"
 default['nagios']['conf']['enable_notifications'] = 1

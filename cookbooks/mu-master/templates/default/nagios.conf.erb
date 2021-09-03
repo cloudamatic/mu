@@ -35,19 +35,13 @@
      SetHandler application/x-httpd-php
   </FilesMatch>
 
-<% if @https -%>
   SSLEngine On
-  SSLProtocol <%= node['nagios']['ssl_protocols'] %>
-<% if node['nagios']['ssl_ciphers'] != nil -%>
-  SSLCipherSuite <%= node['nagios']['ssl_ciphers'] %>
-<% end -%>
-  SSLCertificateFile <%= @ssl_cert_file %>
-<% if node['nagios']['ssl_cert_chain_file'] %>
-  SSLCertificateChainFile <%= node['nagios']['ssl_cert_chain_file'] %>
-<% end -%>
-  SSLCertificateKeyFile <%= @ssl_cert_key %>
+  SSLCertificateFile <%= $MU_CFG['ssl']['cert'] %>
+  SSLCertificateKeyFile <%= $MU_CFG['ssl']['key'] %>
+<% if $MU_CFG['ssl'].has_key?("chain") and !$MU_CFG['ssl']['chain'].empty? %>
+  SSLCertificateChainFile <%= $MU_CFG['ssl']['chain'] %>
+<% end %>
 
-<% end -%>
 <% case node['nagios']['server_auth_method'] -%>
 <% when "openid" -%>
   <Location />
