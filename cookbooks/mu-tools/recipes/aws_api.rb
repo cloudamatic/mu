@@ -17,18 +17,26 @@
 # limitations under the License.
 
 # well apparently these versions need to be pegged to whatever Chef is using
-# internally (as of Chef 16.14.1, aws-sdk-core 3.117) or 
+# internally (as of Chef 17.4.38, aws-sdk-core 3.119)
 awsgems = {
-  "aws-sdk" => "~> 3.117",
-  "aws-sdk-s3" => "~> 1.96",
-  "aws-sdk-ec2" => nil
+#  "aws-sdk-core" => "~> 3.119",
+  "aws-sdk-s3" => "1.100.0",
+#  "aws-sdk-ec2" => nil
 }
 
 awsgems.each_pair { |g, v|
+# XXX chef_gem is, inexplicably, failing for these AWS SDK gems; logs indicate
+# installation, but they're not actually there. Doing it with an execute seems
+# to circumvent the problem. We then use chef_gem to load the stupid thing for
+# the current Chef run.
+  execute "env -i /opt/chef/embedded/bin/gem install #{g} #{v.nil? ? "" : "--version '#{v}'"}" do
+    compile_time true
+  end
   chef_gem g do
+    gem_binary "/opt/chef/embedded/bin/gem"
     version v if !v.nil?
     compile_time true
-    action :install
+   action :install
   end
 }
 

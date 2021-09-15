@@ -15,7 +15,7 @@ control 'init' do
   node = json('/tmp/chef_node.json').params  
   NODE_PUB_IP=node_meta[0]['pub_ip']
   CHEF_SERVER_VERSION="12.17.15-1"
-  CHEF_CLIENT_VERSION="16.14.1"
+  CHEF_CLIENT_VERSION="17.4.38"
   KNIFE_WINDOWS="1.9.0"
   MU_BASE="/opt/mu"
   f = "/etc/ssh/sshd_config"
