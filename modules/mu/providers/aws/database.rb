@@ -814,7 +814,7 @@ dependencies
 
           threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
             MU.log "Deleting RDS subnet group #{id}"
-            MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
+            MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 60, max: 10, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
               MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_subnet_group(db_subnet_group_name: id) if !noop
             }
           }
@@ -822,7 +822,7 @@ dependencies
           ["db", "db_cluster"].each { |type|
             threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, (type == "db" ? "pg" : "cluster-pg"), region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
               MU.log "Deleting RDS #{type} parameter group #{id}"
-              MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
+              MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 60, max: 10, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
                 MU::Cloud::AWS.rds(region: region, credentials: credentials).send("delete_#{type}_parameter_group", { "#{type}_parameter_group_name".to_sym => id }) if !noop
               }
             }
