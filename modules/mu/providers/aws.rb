@@ -982,7 +982,7 @@ end
             id = matches.first
           elsif matches.size == 0
             if raise_on_missing
-              raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
+              raise MuError, "No IAM or ACM certificate named #{name} was found in #{region} (credentials: #{(credentials.nil? or credentials.empty?) ? "default" : credentials})"
             else
               return nil
             end

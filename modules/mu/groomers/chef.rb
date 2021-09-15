@@ -666,6 +666,7 @@ module MU
           kb.config[:chef_node_name] = @server.mu_name
           kb.config[:bootstrap_product] = "chef"
           kb.config[:bootstrap_version] = MU.chefVersion
+          kb.config[:channel] = "stable"
           # XXX key off of MU verbosity level
           kb.config[:log_level] = :debug
           # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
