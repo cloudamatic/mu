@@ -338,7 +338,7 @@ module Mutools
         http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
         response = http.request(req)
         if response.code != "200"
-          Chef::Log.error("Got #{response.code} back from #{uri} on #{action} => #{arg}")
+          Chef::Log.error("Got #{response.code} back from #{uri} on #{action} => #{arg}: #{response.body}")
         else
           if action == "add_volume" and arg and arg.is_a?(Hash) and arg[:dev]
             seen_requested = false
