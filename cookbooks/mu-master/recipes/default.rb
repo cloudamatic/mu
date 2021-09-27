@@ -421,6 +421,10 @@ if !node['update_nagios_only']
   "
   end
 
+  execute "chcon -R -h -t var_log_t /Mu_Logs" do
+    not_if "ls -aZ /Mu_Logs | grep ':var_log_t'"
+  end
+
 # XXX this will catch the occasional 4am groom. Need a way to graceful-restart momma.
   file "/etc/logrotate.d/Mu_momma_cat" do
     content "/var/log/mu-momma-cat.log
