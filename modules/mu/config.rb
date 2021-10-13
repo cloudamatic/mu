@@ -1163,6 +1163,7 @@ module MU
       myAZ = $myAZ
       myRegion = $myRegion
       myAppName = $myAppName
+      credentials = @default_credentials ? @default_credentials : "default"
 
 #      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
       MU::Config.global_bindings[keyset] = binding
