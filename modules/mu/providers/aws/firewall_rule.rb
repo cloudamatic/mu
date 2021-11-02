@@ -107,6 +107,7 @@ module MU
         # Called by {MU::Deploy#createResources}
         def groom
           if !@config['rules'].nil? and @config['rules'].size > 0
+
             egress = false
             egress = true if !@vpc.nil?
             # XXX the egress logic here is a crude hack, this really needs to be
@@ -766,7 +767,6 @@ module MU
 
           ec2_rules = convertToEc2(rules)
           return if ec2_rules.nil?
-
           ext_permissions = MU.structToHash(cloud_desc(use_cache: false).ip_permissions)
 
           purge_extraneous_rules(ec2_rules, ext_permissions)
@@ -778,6 +778,7 @@ module MU
             ext_permissions.each { |ext_rule|
               if rule[:from_port] == ext_rule[:from_port] and
                  rule[:to_port] == ext_rule[:to_port] and
+                 rule[:ip_ranges] == ext_rule[:ip_ranges] and
                  rule[:ip_protocol] == ext_rule[:ip_protocol]
                 haverule = ext_rule
                 ext_rule.keys.each { |k|
