@@ -1,0 +1,10 @@
+---
+VERSIONS:
+  "2019":
+    installer: "https://go.microsoft.com/fwlink/?linkid=866658"
+    progdir: "MSSQL15.SQLEXPRESS"
+    tooldir: "170"
+  "2016":
+    installer: "https://download.microsoft.com/download/3/7/6/3767D272-76A1-4F31-8849-260BD37924E4/SQLServer2016-SSEI-Expr.exe"
+    progdir: "MSSQL13.SQLEXPRESS"
+    tooldir: "130"

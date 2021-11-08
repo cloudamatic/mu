@@ -1,9 +1,9 @@
 ---
 
-- name: Check for existence of Sql Server Express
-  win_shell: Get-ChildItem -Name "c:/Program Files/Microsoft SQL Server/MSSQL15.SQLEXPRESS"
+- name: "Check for existence of Sql Server Express {{ SQX_VERSION }}"
+  win_shell: Get-ChildItem -Name "c:/Program Files/Microsoft SQL Server/{{ VERSIONS[SQX_VERSION]['progdir'] }}"
   ignore_errors: true
-  no_log: true
+#  no_log: true
   register: sqlserver_installed
 
 - name: Ensure existence of c:/temp
@@ -11,10 +11,11 @@
     path: c:/temp
     state: directory
 
-- name: Download SQL Server Express installer
+- name: "Download SQL Server Express {{ SQX_VERSION }} installer"
   when: sqlserver_installed is failed
   win_get_url:
-    url: https://go.microsoft.com/fwlink/?linkid=866658
+    #url: https://go.microsoft.com/fwlink/?linkid=866658
+    url: "{{ VERSIONS[SQX_VERSION]['installer'] }}"
     dest: "c:/temp/sql-server-express.exe"
 
 - name: Copy SQL Server installer batch wrapper
@@ -90,8 +91,8 @@
 
 - name: Enable remote connections in SQL Server Express (even though they're really local connections)
   win_shell: |
-    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "EXEC sys.sp_configure N'remote access', N'1'"
-    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/170/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "RECONFIGURE WITH OVERRIDE"
+    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/{{ VERSIONS[SQX_VERSION]['tooldir'] }}/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "EXEC sys.sp_configure N'remote access', N'1'"
+    & "c:/Program Files/Microsoft SQL Server/Client SDK/ODBC/{{ VERSIONS[SQX_VERSION]['tooldir'] }}/Tools/Binn/sqlcmd.exe" -S lpc:.\SQLEXPRESS -Q "RECONFIGURE WITH OVERRIDE"
 
 
 - name: Install SQL Server Management Studio
