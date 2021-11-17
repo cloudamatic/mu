@@ -305,9 +305,8 @@ module MU
         zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
         mu_zone = zones.values.first if !zones.nil?
       end
-
       if !mu_zone.nil?
-        MU::Cloud::DNSZone.genericMuDNSEntry(name: node.gsub(/[^a-z0-9!"\#$%&'\(\)\*\+,\-\/:;<=>\?@\[\]\^_`{\|}~\.]/, '-').gsub(/--|^-/, ''), target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
+        MU::Cloud::DNSZone.genericMuDNSEntry(name: node.gsub(/[^a-z0-9!"\#$%&'\(\)\*\+,\-\/:;<=>\?@\[\]\^_`{\|}~\.]/i, '-').gsub(/--|^-/, ''), target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
       else
         MU::Master.addInstanceToEtcHosts(server.canonicalIP, node)
       end
