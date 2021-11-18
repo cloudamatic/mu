@@ -23,6 +23,7 @@ end
 
 require 'rubygems'
 require 'bundler/setup'
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
 require 'mu'
 
 # XXX this should be rolled into mu-aws-setup
