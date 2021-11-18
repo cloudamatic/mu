@@ -1,0 +1,27 @@
+server {
+  listen 8080 ssl;
+  listen [::]:8080 ssl;
+
+  server_name {{ inventory_hostname }} {{ ec2['public_dns_name'] }} {{ ec2['private_dns_name'] }};
+  ssl_certificate /etc/ssl/certs/{{ inventory_hostname }}.crt;
+  ssl_certificate_key /etc/ssl/private/{{ inventory_hostname }}.key;
+#  ssl_dhparam /etc/ssl/certs/dhparam.pem;
+
+  location / {
+     proxy_pass {%- for node,meta in mu_deployment['servers']['logsearch'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["private_ip_address"] %} https://{{ v }}:9200;
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}
+
+     #proxy_http_version 1.1;
+     #proxy_set_header Upgrade $http_upgrade;
+     #proxy_set_header Connection 'upgrade';
+     #proxy_set_header Host $host;
+     #proxy_cache_bypass $http_upgrade;
+     #proxy_ssl_trusted_certificate /etc/;
+     proxy_ssl_verify off;
+  }
+}

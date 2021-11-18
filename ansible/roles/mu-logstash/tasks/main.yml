@@ -13,6 +13,7 @@
   with_items:
   - logstash
   - apm-server
+  - nginx
 
 - name: Logstash config files in /etc/logstash
   copy:
@@ -24,6 +25,31 @@
   - jvm.options
   - logstash.yml
 
+- name: Logstash config files in /etc/logstash/conf.d
+  copy:
+    dest: "/etc/logstash/conf.d/{{ item }}"
+    src: "{{ item }}"
+    mode: 0644
+  become: yes
+  with_items:
+  - 02-beats-input.conf
+  - 10-rails-filter.conf
+
+# Our sibling ElasticSearch server will just be using certificates signed by
+# Mu's CA, so snag that for certificate verification
+- name: Copy Mu's CA to /etc/logstash/elasticsearch-ca.pem
+  copy:
+    dest: /etc/logstash/elasticsearch-ca.pem
+    src: /opt/mu/var/ssl/Mu_CA.pem
+    mode: 0644
+  become: yes
+
+- name: Logstash Elastic integration config
+  template:
+    src: 30-elasticsearch-output.conf.j2
+    dest: /etc/logstash/conf.d/30-elasticsearch-output.conf
+    mode: 0644
+
 - name: APM Server config
   template:
     src: apm-server.yml.j2
@@ -31,3 +57,48 @@
     owner: root
     group: apm-server
     mode: 0644
+
+- name: Copy Nginx certificate into place
+  copy:
+    dest: "/etc/ssl/certs/{{ inventory_hostname }}.crt"
+    src: "/opt/mu/var/ssl/{{ inventory_hostname }}.crt"
+    mode: 0644
+  become: yes
+
+- name: Make sure /etc/ssl/private exists
+  file:
+    path: /etc/ssl/private
+    mode: 0077
+    state: directory
+
+- name: Copy Nginx key into place
+  copy:
+    dest: "/etc/ssl/private/{{ inventory_hostname }}.key"
+    src: "/opt/mu/var/ssl/{{ inventory_hostname }}.key"
+    mode: 0644
+  become: yes
+
+- name: Nginx configs
+  template:
+    src: "nginx/{{ item }}.j2"
+    dest: "/etc/nginx/conf.d/{{ item }}"
+    mode: 0644
+  with_items:
+  - apm.conf
+  - default.conf
+  - elastic.conf
+
+- name: Enable and start APM Server
+  service:
+    name: apm-server
+    state: started
+
+- name: Enable and start logstash
+  service:
+    name: logstash
+    state: started
+
+- name: Enable and start Nginx
+  service:
+    name: nginx
+    state: started

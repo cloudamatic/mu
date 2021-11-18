@@ -1,0 +1,19 @@
+output {
+  elasticsearch {
+    hosts => {%- for node,meta in mu_deployment['servers']['logsearch'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["private_ip_address"] %} "https://{{ v }}:9200"
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}
+
+    ssl => true
+    ssl_certificate_verification => false
+    user => "elastic"
+    password => "123456"
+    cacert => "/etc/logstash/elasticsearch-ca.pem"
+    manage_template => false
+    index => "%{[@metadata][beat]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+  }
+}

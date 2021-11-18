@@ -34,3 +34,19 @@
   become: yes
   with_items:
   - kibana.yml
+
+- name: Copy ElasticSearch certificate store into place
+  copy:
+    dest: "/etc/elasticsearch/{{ item }}"
+    src: "/opt/mu/var/ssl/{{ inventory_hostname }}.pfx"
+    mode: 0640
+    group: elasticsearch
+  become: yes
+  with_items:
+  - elastic-certificates.p12
+  - http.p12
+
+- name: Enable and start ElasticSearch
+  service:
+    name: elasticsearch
+    state: started
