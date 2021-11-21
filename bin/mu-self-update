@@ -213,7 +213,7 @@ else
   fi
 fi
 
-/opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
+PATH="/opt/chef/embedded/bin:${PATH}" /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 
 /bin/rm -rf $MU_DATADIR/tmp/cookbook_changes.$$
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
