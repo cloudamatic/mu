@@ -159,7 +159,7 @@ git config branch.${branch}.merge refs/heads/$branch
 CHEF_CLIENT_VERSION=`grep '^CHEF_CLIENT_VERSION=' /opt/mu/lib/install/installer |cut -d\" -f2`
 
 # Make sure any new bootstrappy stuff has been applied
-PATH="/opt/chef/embedded/bin:${PATH}" chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
+PATH="/opt/chef/embedded/bin:${PATH}" /opt/chef/bin/chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
 
 # Make sure bundler will use a recent git binary
 if [ -d /usr/local/git-current ];then
