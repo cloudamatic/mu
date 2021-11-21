@@ -785,7 +785,7 @@ MU.log "Azure::Server.find called", MU::NOTICE, details: args
             os_obj.admin_password = begin
               @deploy.fetchSecret(@mu_name, "windows_admin_password")
             rescue MU::MommaCat::SecretError
-              pw = MU.generateWindowsPassword
+              pw = MU.generatePassword
               @deploy.saveNodeSecret(@mu_name, pw, "windows_admin_password")
               pw
             end

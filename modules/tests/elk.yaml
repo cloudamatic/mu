@@ -1,6 +1,9 @@
 # groomers: Ansible
 ---
 appname: smoketest
+generate_passwords:
+- itemname: elasticpw
+  minlength: 12
 vpcs:
 - name: wrapper
 servers: 
@@ -10,6 +13,8 @@ servers:
   vpc:
     name: wrapper
   size: t3.medium
+  vault_access:
+  - item: elasticpw
   run_list:
   - mu-logstash
 #<% if cloud != "AWS" %>
@@ -19,6 +24,8 @@ servers:
   vpc:
     name: wrapper
   size: m5.large
+  vault_access:
+  - item: elasticpw
   run_list:
   - mu-elastic
 #<% else %>

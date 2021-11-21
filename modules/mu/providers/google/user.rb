@@ -114,7 +114,7 @@ module MU
               primary_email: @config['email'],
               suspended: @config['suspend'],
               is_admin: @config['admin'],
-              password: MU.generateWindowsPassword,
+              password: MU.generatePassword,
               change_password_at_next_login: (@config.has_key?('force_password_change') ? @config['force_password_change'] : true)
             )
 

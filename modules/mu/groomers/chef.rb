@@ -221,7 +221,7 @@ module MU
       end
 
       # see {MU::Groomer::Chef.getSecret}
-      def getSecret(vault: nil, item: nil, field: nil)
+      def getSecret(vault: @server.mu_name, item: nil, field: nil)
         self.class.getSecret(vault: vault, item: item, field: field)
       end
 

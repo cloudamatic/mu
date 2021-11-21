@@ -30,12 +30,12 @@ module MU
           if !server['active_directory'].nil?
             ["domain_admin_vault", "domain_join_vault"].each { |vault_class|
               server['vault_access'] << {
-                  "vault" => server['active_directory'][vault_class]['vault'],
-                  "item" => server['active_directory'][vault_class]['item']
+                "vault" => server['active_directory'][vault_class]['vault'],
+                "item" => server['active_directory'][vault_class]['item']
               }
               item = groomclass.getSecret(
-                  vault: server['active_directory'][vault_class]['vault'],
-                  item: server['active_directory'][vault_class]['item'],
+                vault: server['active_directory'][vault_class]['vault'],
+                item: server['active_directory'][vault_class]['item'],
               )
               ["username_field", "password_field"].each { |field|
                 if !item.has_key?(server['active_directory'][vault_class][field])
@@ -50,8 +50,8 @@ module MU
             server['use_cloud_provider_windows_password'] = false
 
             server['vault_access'] << {
-                "vault" => server['windows_auth_vault']['vault'],
-                "item" => server['windows_auth_vault']['item']
+              "vault" => server['windows_auth_vault']['vault'],
+              "item" => server['windows_auth_vault']['item']
             }
             item = groomclass.getSecret(
               vault: server['windows_auth_vault']['vault'],
@@ -67,6 +67,7 @@ module MU
           # Check all of the non-special ones while we're at it
           server['vault_access'].each { |v|
             next if v['vault'] == "splunk" and v['item'] == "admin_user"
+            next if !v['vault'] # assumed to be the one the server or database will always have
             item = groomclass.getSecret(vault: v['vault'], item: v['item'])
           }
         rescue MuError
@@ -478,32 +479,32 @@ module MU
               "type" => "object",
               "description" => "Chef Node structure artifact for mu-tools cookbook.",
           },
-          # Objects here will be stored in this node's Chef Vault
+          # Objects here will be stored in this node's Chef/Ansible/etc Vault
           "secrets" => {
               "type" => "object",
-              "description" => "JSON artifact to be stored in Chef Vault for this node. Note that these values will still be stored in plain text local to the MU server, but only accessible to nodes via Vault."
+              "description" => "JSON artifact to be stored the appropriate groomer vault for this node. Note that these values will still be stored in plain text local to the MU server, but only accessible to nodes via Vault."
           },
           # This node will be granted access to the following Vault items.
           "vault_access" => {
-              "type" => "array",
-              "minItems" => 1,
-              "items" => {
-                  "description" => "Chef Vault items to which this node should be granted access.",
-                  "type" => "object",
-                  "title" => "vault_access",
-                  "required" => ["vault", "item"],
-                  "additionalProperties" => false,
-                  "properties" => {
-                      "vault" => {
-                          "type" => "string",
-                          "description" => "The Vault to which this node should be granted access."
-                      },
-                      "item" => {
-                          "type" => "string",
-                          "description" => "The item within the Vault to which this node should be granted access."
-                      }
-                  }
+            "type" => "array",
+            "minItems" => 1,
+            "items" => {
+              "description" => "Chef Vault items to which this node should be granted access.",
+              "type" => "object",
+              "title" => "vault_access",
+              "required" => ["item"],
+              "additionalProperties" => false,
+              "properties" => {
+                "vault" => {
+                  "type" => "string",
+                  "description" => "The Vault to which this node should be granted access. If not specified, will resolve to this resource's own vault (ex +MYAPP-DEV-2021091617-QT-FOODB+)"
+                },
+                "item" => {
+                  "type" => "string",
+                  "description" => "The item within the Vault to which this node should be granted access."
+                }
               }
+            }
           },
           "existing_deploys" => {
             "type" => "array",

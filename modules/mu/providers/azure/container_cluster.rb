@@ -249,7 +249,7 @@ module MU
               os_obj = MU::Cloud::Azure.containers(:ContainerServiceWindowsProfile, model_version: "V2019_02_01").new
               os_obj.admin_username = "muadmin"
               # Azure password constraints are extra-annoying
-              winpass = MU.generateWindowsPassword(safe_pattern: '!@#$%^&*()', retries: 150)
+              winpass = MU.generatePassword(safe_pattern: '!@#$%^&*()', retries: 150)
 # TODO store this somewhere the user can get at it
               os_obj.admin_password = winpass
               os_obj

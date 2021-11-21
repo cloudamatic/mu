@@ -195,6 +195,7 @@ module MU
         setDeploySecret
         MU::MommaCat.setThreadContext(self) if set_context_to_me
         save!
+        generatePasswords
       end
 
       @appname ||= MU.appname
@@ -223,6 +224,29 @@ module MU
 # XXX this .owned? method may get changed by the Ruby maintainers
 #     if !@@litter_semaphore.owned?
     end # end of initialize()
+
+    def generatePasswords
+      return if !@original_config['generate_passwords']
+
+      @original_config['generate_passwords'].each { |pw|
+        password = MU.generatePassword(safe_pattern: pw['safe_chars'], length: pw['minlength'])
+        MU.supportedGroomers.each { |g|
+          groomclass = MU.loadGroomer(g)
+          begin
+            groomclass.getSecret(vault: @deploy_id,
+                                        item: pw['itemname'],
+                                        field: 'password')
+          rescue MU::Groomer::MuNoSuchSecret
+            pwdata = { "password" => password }
+            pwdata["username"] = pw["username"] if pw["username"]
+            groomclass.saveSecret(vault: @deploy_id,
+                                  item: pw['itemname'],
+                                  data: pwdata,
+                                  permissions: (g == "Ansible"))
+          end
+        }
+      }
+    end
 
     # List all the cloud providers declared by resources in our deploy.
     def cloudsUsed

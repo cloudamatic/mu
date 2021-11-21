@@ -1072,23 +1072,23 @@ module MU
   end
 
 
-  # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
+  # Generate a random password which will satisfy the complexity requirements of things like the stock Amazon Windows AMIs.
   # return [String]: A password string.
-  def self.generateWindowsPassword(safe_pattern: '~!@#%^&*_-+=`|(){}[]:;<>,.?', retries: 50)
+  def self.generatePassword(safe_pattern: '~!@#%^&*_-+=`|(){}[]:;<>,.?', length: 14, retries: 50)
     # We have dopey complexity requirements, be stringent here.
     # I'll be nice and not condense this into one elegant-but-unreadable regular expression
     attempts = 0
     safe_metachars = Regexp.escape(safe_pattern)
     begin
       if attempts > retries
-        MU.log "Failed to generate an adequate Windows password after #{attempts} attempts", MU::ERR
-        raise MuError, "Failed to generate an adequate Windows password after #{attempts} attempts"
+        MU.log "Failed to generate an adequate password after #{attempts} attempts", MU::ERR
+        raise MuError, "Failed to generate an adequate password after #{attempts} attempts"
       end
-      winpass = Password.random(14..16)
+      winpass = Password.random(length..(length+2))
       attempts += 1
     end while winpass.nil? or !winpass.match(/^[a-z]/i) or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
 
-    MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
+    MU.log "Generated password after #{attempts} attempts", MU::DEBUG
     return winpass
   end
 

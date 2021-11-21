@@ -439,17 +439,45 @@ module MU
             "description" => "For resources which span regions, restrict to regions inside the United States",
             "default" => false
         },
-        "conditions" => {
-            "type" => "array",
-            "items" => {
-              "type" => "object",
-              "required" => ["name", "cloudcode"],
-              "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
-              "properties" => {
-                "name" => { "required" => true, "type" => "string" },
-                "cloudcode" => { "required" => true, "type" => "string" },
+        "generate_passwords" => {
+          "type" => "array",
+          "items" => {
+            "type" => "object",
+            "required" => ["itemname"],
+            "description" => "Generate a password-like string upon initial deployment and store it in the named item in this deploy's vault.",
+            "properties" => {
+              "itemname" => {
+                "type" => "string",
+                "description" => "The vault item into which this password should be injected"
+              },
+              "username" => {
+                "type" => "string",
+                "description" => "Optional string to add to vault data under the +username+ field"
+              },
+              "minlength" => {
+                "type" => "integer",
+                "description" => "The minimum length of the generated password",
+                "default" => 14
+              },
+              "safe_chars" => {
+                "type" => "string",
+                "descriptions" => "Characters (in addition to digits and latin letters) which should be considered for inclusion",
+                "default" => '~!@#%^&*_-+=`|(){}[]:;<>,.?'
               }
             }
+          }
+        },
+        "conditions" => {
+          "type" => "array",
+          "items" => {
+            "type" => "object",
+            "required" => ["name", "cloudcode"],
+            "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
+            "properties" => {
+              "name" => { "required" => true, "type" => "string" },
+              "cloudcode" => { "required" => true, "type" => "string" },
+            }
+          }
         },
         "parameters" => {
             "type" => "array",

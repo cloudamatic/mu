@@ -2104,9 +2104,9 @@ module MU
               end
             end
 
-            win_admin_password ||= MU.generateWindowsPassword
-            ec2config_password ||= MU.generateWindowsPassword
-            sshd_password ||= MU.generateWindowsPassword
+            win_admin_password ||= MU.generatePassword
+            ec2config_password ||= MU.generatePassword
+            sshd_password ||= MU.generatePassword
 
             # We're creating the vault here so when we run
             # MU::Cloud::Server.initialSSHTasks and we need to set the Windows

@@ -82,7 +82,7 @@ module MU
                 MU.log "User #{@mu_name}'s AWS Console password can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
               rescue Aws::IAM::Errors::PasswordPolicyViolation => e
                 if retries < 1
-                  pw = MU.generateWindowsPassword
+                  pw = MU.generatePassword
                   retries += 1
                   sleep 1
                   retry
