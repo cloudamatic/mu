@@ -1,4 +1,26 @@
 ---
+
+- name: remove firewalld
+  package:
+    name: firewalld
+    state: absent
+
+- name: make sure iptables is available
+  package:
+    name: iptables-services
+    state: present
+
+- name: allow inbound for internal services
+  iptables:
+    chain: INPUT
+    source: "{{ mu_deployment['vpcs']['wrapper']['ip_block'] }}"
+    destination_port: "{{ item }}"
+    protocol: tcp
+    jump: ACCEPT
+  with_items:
+  - "9200"
+  - "9300"
+
 - name: add yum repo for ElasticSearch
   yum_repository:
     name: elasticsearch
@@ -13,6 +35,7 @@
   with_items:
   - elasticsearch
   - kibana
+  - httpd-tools
 
 - name: ElasticSearch config files in /etc/elasticsearch
   copy:
@@ -46,7 +69,7 @@
   - elastic-certificates.p12
   - http.p12
 
-- name: Enable and start ElasticSearch
+- name: "Enable and start ElasticSearch"
   service:
     name: elasticsearch
     state: started

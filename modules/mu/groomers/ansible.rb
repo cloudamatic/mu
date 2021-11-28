@@ -19,6 +19,7 @@ module MU
   class Groomer
     # Support for Ansible as a host configuration management layer.
     class Ansible
+      require 'open3'
 
       # Failure to load or create a deploy
       class NoAnsibleExecError < MuError;
@@ -77,7 +78,7 @@ module MU
       # @param data [Hash]: Data to save
       # @param permissions [Boolean]: If true, save the secret under the current active deploy (if any), rather than in the global location for this user
       # @param deploy_dir [String]: If permissions is +true+, save the secret here
-      def self.saveSecret(vault: nil, item: nil, data: nil, permissions: false, deploy_dir: nil)
+      def self.saveSecret(vault: nil, item: nil, data: nil, permissions: false, deploy_dir: nil, quiet: false)
 
         if vault.nil? or vault.empty? or item.nil? or item.empty?
           raise MuError, "Must call saveSecret with vault and item names"
@@ -86,6 +87,7 @@ module MU
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
         pwfile = vaultPasswordFile
+        vault_cmd = %Q{#{ansibleExecDir}/ansible-vault}
 
         dir = if permissions
           if deploy_dir
@@ -104,7 +106,7 @@ module MU
           FileUtils.mkdir_p(dir, mode: 0700)
         end
 
-        if File.exist?(path)
+        if File.exist?(path) and !quiet
           MU.log "Overwriting existing vault #{vault} item #{item}"
         end
 
@@ -112,14 +114,36 @@ module MU
           f.write data.to_yaml
         }
 
-        cmd = %Q{#{ansibleExecDir}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
-        MU.log cmd
+        cmd = %Q{#{vault_cmd} encrypt #{path} --vault-password-file #{pwfile}}
+        MU.log cmd if !quiet
         raise MuError, "Failed Ansible command: #{cmd}" if !system(cmd)
+
+        # If we're stashing things under a deploy, go ahead and munge them into
+        # variables that actual Ansible tasks can get at
+        if permissions
+          encrypted_string = File.read(path).chomp
+          dir = (deploy_dir ? deploy_dir : MU.mommacat.deploy_dir)+"/ansible"
+          FileUtils.mkdir_p(dir, mode: 0700) if !Dir.exist?(dir)
+          FileUtils.mkdir_p(dir+"/vars", mode: 0700) if !Dir.exist?(dir+"/vars")
+          vars_file = "#{dir}/vars/#{vault}.yml"
+
+          vars = if File.exists?(vars_file)
+            YAML.load(File.read(vars_file))
+          else
+            {}
+          end
+          vars[item] = encrypted_string
+          File.open(vars_file, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+            f.flock(File::LOCK_EX)
+            f.puts vars.to_yaml
+            f.flock(File::LOCK_UN)
+          }
+        end
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
-      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: true)
-        self.class.saveSecret(vault: vault, item: item, data: data, permissions: permissions, deploy_dir: @server.deploy.deploy_dir)
+      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: true, quiet: false)
+        self.class.saveSecret(vault: vault, item: item, data: data, permissions: permissions, deploy_dir: @server.deploy.deploy_dir, quiet: quiet)
       end
 
       # Retrieve sensitive data, which hopefully we're storing and retrieving
@@ -128,7 +152,7 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil)
+      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil, quiet: false)
         if vault.nil? or vault.empty?
           raise MuError, "Must call getSecret with at least a vault name"
         end
@@ -155,7 +179,7 @@ module MU
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
-          MU.log cmd
+          MU.log cmd if !quiet
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON or YAML, return it
           # as parsed, which is a behavior we're used to from Chef vault.
@@ -187,8 +211,8 @@ module MU
       end
 
       # see {MU::Groomer::Ansible.getSecret}
-      def getSecret(vault: @server.mu_name, item: nil, field: nil)
-        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir)
+      def getSecret(vault: @server.mu_name, item: nil, field: nil, quiet: false)
+        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir, quiet: quiet)
       end
 
       # Delete a Ansible data bag / Vault
@@ -258,6 +282,7 @@ module MU
         end
 
         cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.windows? ? @server.canonicalIP : @server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+
 
         retries = 0
         begin
@@ -355,11 +380,34 @@ module MU
         allvars = {
           "mu_deployment" => MU::Config.stripConfig(@server.deploy.deployment),
           "mu_service_name" => @config["name"],
+          "mu_deploy_id" => @server.deploy.deploy_id,
           "mu_canonical_ip" => @server.canonicalIP,
           "mu_admin_email" => $MU_CFG['mu_admin_email'],
-          "mu_environment" => MU.environment.downcase
+          "mu_environment" => MU.environment.downcase,
+          "mu_vaults" => {}
         }
         allvars['mu_deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
+
+        vaultdir = @ansible_path+"/vaults"
+        if Dir.exists?(vaultdir)
+          Dir.entries(vaultdir).each { |v|
+            next if !File.directory?(vaultdir+"/"+v)
+            next if [".", ".."].include?(v)
+            Dir.entries(vaultdir+"/"+v).each { |i|
+              next if File.directory?(vaultdir+"/"+v+"/"+i)
+              value = getSecret(vault: v, item: i, quiet: true)
+              next if !value # ignore corrupted data
+
+              # Ansible struggles to actually use this. The only thing that
+              # seems to work is writing it (decrypted) to a tmp file on the
+              # target host then reading that back, which is both ugly and
+              # insecure. None of these workarounds seem to do the thing:
+              # https://github.com/ansible/ansible/issues/24425
+              allvars["mu_vaults"][v] ||= {}
+              allvars["mu_vaults"][v].merge!(YAML.load(self.class.encryptString(value.to_yaml, i)))
+            }
+          }
+        end
 
         if @server.config['cloud'] == "AWS"
           allvars["ec2"] = MU.structToHash(@server.cloud_desc, stringify_keys: true)
@@ -433,17 +481,23 @@ module MU
         found
       end
 
-      # Encrypt a string using +ansible-vault encrypt_string+ and print the
-      # the results to +STDOUT+.
-      # @param name [String]: The variable name to use for the string's YAML key
+      # Encrypt a string using +ansible-vault encrypt_string+ and return +STDOUT+
       # @param string [String]: The string to encrypt
-      def self.encryptString(name, string)
+      # @param name [String]: A name to use for the string's YAML key
+      def self.encryptString(string, name = nil)
         pwfile = vaultPasswordFile
         cmd = %Q{#{ansibleExecDir}/ansible-vault}
-        if !system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
+
+        stdout, status = if name
+           Open3.capture2(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
+        else
+          Open3.capture2(cmd, "encrypt_string", string, "--vault-password-file", pwfile)
+        end
+
+        if !status.success?
           raise MuError, "Failed Ansible command: #{cmd} encrypt_string <redacted> --name #{name} --vault-password-file"
         end
-        output
+        stdout.strip
       end
 
       # Hunt down and return a path for a Python executable

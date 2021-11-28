@@ -1,4 +1,37 @@
 ---
+
+- name: remove firewalld
+  package:
+    name: firewalld
+    state: absent
+
+- name: make sure iptables is available
+  package:
+    name: iptables-services
+    state: present
+
+- name: allow inbound for internal services
+  iptables:
+    chain: INPUT
+    source: "{{ mu_deployment['vpcs']['wrapper']['ip_block'] }}"
+    destination_port: "{{ item }}"
+    protocol: tcp
+    jump: ACCEPT
+  with_items:
+  - "8080"
+  - "8008"
+
+- name: allow inbound for public traffic
+  iptables:
+    chain: INPUT
+    source: 0.0.0.0/0
+    destination_port: "{{ item }}"
+    protocol: tcp
+    jump: ACCEPT
+  with_items:
+  - "80"
+  - "443"
+
 - name: add yum repo for ElasticSearch
   yum_repository:
     name: elasticsearch
@@ -13,7 +46,9 @@
   with_items:
   - logstash
   - apm-server
+  - heartbeat-elastic
   - nginx
+  - httpd-tools
 
 - name: Logstash config files in /etc/logstash
   copy:
@@ -58,6 +93,12 @@
     group: apm-server
     mode: 0644
 
+- name: Elastic Heartbeat config
+  template:
+    src: heartbeat.yml.j2
+    dest: /etc/heartbeat/heartbeat.yml
+    mode: 0600
+
 - name: Copy Nginx certificate into place
   copy:
     dest: "/etc/ssl/certs/{{ inventory_hostname }}.crt"
@@ -98,7 +139,53 @@
     name: logstash
     state: started
 
+- name: Enable and start Elastic Heartbeat
+  service:
+    name: heartbeat-elastic
+    state: started
+
 - name: Enable and start Nginx
   service:
     name: nginx
     state: started
+
+# XXX (this insecure convolution belongs in some kind of shared library)
+# We have to go through this tempfile dance because jinja doesn't actually see
+# decrypted vault data, apparently, so as soon as we try to do anything other
+# than write the whole decrypted blob to a file it fails to decrypt. That's
+# even if we try the various workarounds from:
+# https://github.com/ansible/ansible/issues/24425
+- name: create Elastic password temp file (ugh)
+  tempfile:
+    state: file
+    suffix: temp
+  register: elasticpw_tmpfile
+- name: "Write Elastic password to temp file"
+  copy:
+    dest: "{{ elasticpw_tmpfile.path }}"
+    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
+- name: "Load Elastic password from temp file"
+  slurp:
+    src: "{{ elasticpw_tmpfile.path }}"
+  register: elasticpw_yaml
+- name: From tmp YAML to dict
+  set_fact:
+    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
+# XXX
+
+- name: decrypt elastic password
+  set_fact:
+    elasticpw: "{{ elasticpw_dict['password'] }}"
+
+- name: dammit
+  copy:
+    dest: "/home/centos/wtf"
+    content: "{{ elasticpw_dict['password'] }}"
+    owner: "centos"
+
+
+- name: set elastic password
+  command:
+    cmd: "/bin/htpasswd -b -c /etc/nginx/htpasswd.users elastic \"{{ elasticpw }}\""
+#  no_log: true
+  become: yes

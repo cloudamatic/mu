@@ -1,0 +1,29 @@
+heartbeat.monitors:
+  - type: http
+    id: elk
+    name: elk
+    ports: [5601, 9200]
+    schedule: '@every 10s'
+    urls: {%- for node,meta in mu_deployment['servers']['logstash'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["private_ip_address"] %} ["https://{{ v }}"]
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}
+
+processors:
+  - add_cloud_metadata: ~
+  - add_host_metadata: ~
+
+output.logstash:
+  hosts: ["localhost:5044"]
+
+setup:kibana:
+  host: {%- for node,meta in mu_deployment['servers']['logstash'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["public_dns_name"] %} ["{{ v }}/"]
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}
