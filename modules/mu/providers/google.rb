@@ -29,8 +29,6 @@ module MU
       @@authorizers = {}
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
-      @@readonly_semaphore = Mutex.new
-      @@readonly = {}
 
       # Module used by {MU::Cloud} to insert additional instance methods into
       # instantiated resources in this cloud layer.
@@ -846,7 +844,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         require 'google/apis/iam_v1'
 
         if subclass.nil?
-          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials)
+          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, retry_readonly: true)
           return @@iam_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
@@ -862,28 +860,12 @@ MU.log e.message, MU::WARN, details: e.inspect
         # dopey extra warnings about falling back on scopes
         credentials ||= MU::Cloud::Google.credConfig(credentials, name_only: true)
 
-        writescopes = ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema']
-        readscopes = ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly']
-        @@readonly_semaphore.synchronize {
-          use_scopes = readscopes+writescopes
-          if @@readonly[credentials] and @@readonly[credentials]["AdminDirectoryV1"]
-            use_scopes = readscopes.dup
-          end
-
-          if subclass.nil?
-            begin
-              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials, auth_error_quiet: true)
-            rescue Signet::AuthorizationError
-              MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
-              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-              @@readonly[credentials] ||= {}
-              @@readonly[credentials]["AdminDirectoryV1"] = true
-            end
-            return @@admin_directory_api[credentials]
-          elsif subclass.is_a?(Symbol)
-            return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
-          end
-        }
+        if subclass.nil?
+          @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials, auth_error_quiet: true, retry_readonly: true)
+          return @@admin_directory_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
+        end
       end
 
       # Google's Cloud Resource Manager API
@@ -895,7 +877,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           if !MU::Cloud::Google.credConfig(credentials)
             raise MuError, "No such credential set #{credentials} defined in mu.yaml!"
           end
-          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], retry_readonly: true)
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -1109,7 +1091,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil, auth_error_quiet: false)
+        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil, auth_error_quiet: false, retry_readonly: false)
           @credentials = credentials
           @scopes = scopes.map { |s|
             if !s.match(/\//) # allow callers to use shorthand
@@ -1126,6 +1108,22 @@ MU.log e.message, MU::WARN, details: e.inspect
               @api.authorization.sub = @masquerade
               @api.authorization.fetch_access_token!
             rescue Signet::AuthorizationError => e
+              if retry_readonly
+                newscopes = @scopes.map { |s|
+                  if s =~ /\/cloud-platform$/
+                    s += ".read-only"
+                  elsif s !~ /\/cloud-platform\b/ and s !~ /\.readonly$/
+                    s += ".readonly"
+                  end
+                  s
+                }
+                if newscopes != @scopes
+                  MU.log "Falling back to read-only access to #{api} API on credential set '#{credentials}'", MU::WARN, details: @scopes
+                  @scopes = newscopes
+                  @api.authorization = MU::Cloud::Google.loadCredentials(@scopes, credentials: credentials)
+                  retry
+                end
+              end
               if auth_error_quiet
                 MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::DEBUG, details: @scopes
               else

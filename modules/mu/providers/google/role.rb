@@ -940,7 +940,7 @@ module MU
                 }
               rescue ::Google::Apis::ClientError => e
                 if e.message.match(/forbidden: /)
-                  MU.log "Do not have permissions to retrieve bindings in project #{project}, skipping", MU::WARN
+                  MU.log "Do not have permissions to retrieve bindings in project #{project}, org #{MU::Cloud::Google.getOrg(credentials).display_name}, skipping", MU::WARN
                 else
                   raise e
                 end
