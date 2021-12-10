@@ -260,7 +260,8 @@ module MU
             args[:flags]['parent_id']
           else
             my_org = MU::Cloud::Google.getOrg(args[:credentials])
-            my_org.name
+# XXX re-raise with a clear permission error
+            my_org.name if my_org
           end
 
           if args[:cloud_id]

@@ -310,6 +310,10 @@ module MU
           end
         end
 
+        # clock projects we can't list so we don't waste time trying them over
+        # and over
+        @@cant_list = []
+
         # Locate and return cloud provider descriptors of this resource type
         # which match the provided parameters, or all visible resources if no
         # filters are specified. At minimum, implementations of +find+ must
@@ -341,24 +345,27 @@ module MU
 
           if args[:project]
             # project-local service accounts
-            resp = begin
-              MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
-                "projects/"+args[:project]
-              )
-            rescue ::Google::Apis::ClientError
-              MU.log "Do not have permissions to retrieve service accounts for project #{args[:project]}, org #{MU::Cloud::Google.getOrg(args[:credentials]).display_name}", MU::WARN
-            end
+            if !@@cant_list.include?(args[:project])
+              resp = begin
+                MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
+                  "projects/"+args[:project]
+                )
+              rescue ::Google::Apis::ClientError
+                @@cant_list << args[:project]
+                MU.log "Do not have permissions to retrieve service accounts for project #{args[:project]}, org #{MU::Cloud::Google.getOrg(args[:credentials]).display_name}", MU::WARN
+              end
 
-            if resp and resp.accounts
-              resp.accounts.each { |sa|
-                if args[:flags] and args[:flags]["skip_provider_owned"] and
-                   MU::Cloud::Google::User.cannedServiceAcctName?(sa.name)
-                  next
-                end
-                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id]) or (sa.email and sa.email == args[:cloud_id])
-                  found[sa.name] = sa
-                end
-              }
+              if resp and resp.accounts
+                resp.accounts.each { |sa|
+                  if args[:flags] and args[:flags]["skip_provider_owned"] and
+                     MU::Cloud::Google::User.cannedServiceAcctName?(sa.name)
+                    next
+                  end
+                  if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id]) or (sa.email and sa.email == args[:cloud_id])
+                    found[sa.name] = sa
+                  end
+                }
+              end
             end
           else
             if cred_cfg['masquerade_as']
