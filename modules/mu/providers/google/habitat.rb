@@ -303,7 +303,8 @@ module MU
           bok['name'] = cloud_desc.project_id
           bok['cloud_id'] = cloud_desc.project_id
 #          if cloud_desc.name != cloud_desc.project_id
-            bok['display_name'] = cloud_desc.name
+          bok['display_name'] = cloud_desc.name
+          bok['display_name'] ||= ""
 #          end
 
           if cloud_desc.parent and cloud_desc.parent.id
