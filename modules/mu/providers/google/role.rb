@@ -564,7 +564,12 @@ module MU
             canned = Hash[MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles.roles.map { |r| [r.name, r] }]
             begin
               MU::Cloud.resourceClass("Google", "Habitat").bindings(args[:project], credentials: args[:credentials]).each { |binding|
-                found[binding.role] = canned[binding.role]
+                if binding.role =~ /^roles\//
+                  found[binding.role] = canned[binding.role]
+                elsif binding.role =~ /^#{Regexp.quote(my_org.name)}\/roles\//
+                  found[binding.role] = MU::Cloud::Google.iam(credentials: args[:credentials]).get_organization_role(binding.role)
+                end
+                
               }
             rescue ::Google::Apis::ClientError => e
               raise e if !e.message.match(/forbidden: /)
@@ -663,7 +668,6 @@ module MU
             "credentials" => @config['credentials'],
             "cloud_id" => @cloud_id
           }
-
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
 
           # This can happen if the role_source isn't set correctly. This logic
@@ -680,6 +684,9 @@ module MU
 
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
+if @cloud_id =~ /ncbi_snapshot_manager/
+  MU.log "directory-tier role", MU::NOTICE
+end
             return nil if cloud_desc.is_system_role
 
             bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
@@ -702,6 +709,9 @@ module MU
               bok['import'].sort! # at least be legible
             end
           else # otherwise it's a GCP IAM role of some kind
+if @cloud_id =~ /ncbi_snapshot_manager/
+  MU.log "cloud-tier role", MU::NOTICE
+end
 
             return nil if cloud_desc.stage == "DISABLED"
             if cloud_desc.name.match(/^roles\/([^\/]+)$/)
@@ -811,6 +821,9 @@ module MU
           # to bother with them.
           if bok['role_source'] == "canned" and
              (bok['bindings'].nil? or bok['bindings'].empty?)
+if @cloud_id =~ /ncbi_snapshot_manager/
+  MU.log "ditching at canned role check", MU::NOTICE
+end
             return nil
           end
 
@@ -940,7 +953,7 @@ module MU
                 }
               rescue ::Google::Apis::ClientError => e
                 if e.message.match(/forbidden: /)
-                  MU.log "Do not have permissions to retrieve bindings in project #{project}, skipping", MU::WARN
+                  MU.log "Do not have permissions to retrieve bindings in project #{project}, org #{MU::Cloud::Google.getOrg(credentials).display_name}, skipping", MU::WARN
                 else
                   raise e
                 end

@@ -1030,6 +1030,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           MU::Cloud::Google.compute(credentials: @credentials).patch_subnetwork(@project_id, subnet.az, subnet.cloud_desc.name, subnetobj)
         end
 
+        def connector(id: nil, name: nil)
+        end
+
         private
 
         # @return [Array<NetAddr::IPv4Net>]

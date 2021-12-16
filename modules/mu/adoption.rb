@@ -285,7 +285,7 @@ module MU
               rescue StandardError
               ensure
                 if !obj_desc
-                  MU.log cloud+" "+type.to_s+" "+obj_thr.cloud_id+" did not return a cloud descriptor, skipping", MU::WARN
+                  MU.log cloud+" "+type.to_s+" "+obj_thr.cloud_id+" #{cloud == "Google" ? "in org #{MU::Cloud::Google.getOrg(obj_thr.credentials).display_name} ": ""}did not return a cloud descriptor, skipping", MU::WARN
                   next
                 end
               end
