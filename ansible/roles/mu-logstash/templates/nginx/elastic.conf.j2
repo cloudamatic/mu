@@ -8,7 +8,7 @@ server {
 #  ssl_dhparam /etc/ssl/certs/dhparam.pem;
 
   location / {
-     proxy_pass {%- for node,meta in mu_deployment['servers']['logsearch'].items() %}
+     proxy_pass {%- for node,meta in mu_deployment['servers']['backend'].items() %}
   {%- for k,v in meta.items() %}
     {%- if k in ["private_ip_address"] %} https://{{ v }}:9200;
     {%- endif %}

@@ -171,17 +171,10 @@
 - name: From tmp YAML to dict
   set_fact:
     elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
-# XXX
 
 - name: decrypt elastic password
   set_fact:
     elasticpw: "{{ elasticpw_dict['password'] }}"
-
-- name: dammit
-  copy:
-    dest: "/home/centos/wtf"
-    content: "{{ elasticpw_dict['password'] }}"
-    owner: "centos"
 
 
 - name: set elastic password

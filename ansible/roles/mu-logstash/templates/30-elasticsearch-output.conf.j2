@@ -1,6 +1,6 @@
 output {
   elasticsearch {
-    hosts => {%- for node,meta in mu_deployment['servers']['logsearch'].items() %}
+    hosts => {%- for node,meta in mu_deployment['servers']['backend'].items() %}
   {%- for k,v in meta.items() %}
     {%- if k in ["private_ip_address"] %} "https://{{ v }}:9200"
     {%- endif %}

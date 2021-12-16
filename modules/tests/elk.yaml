@@ -7,7 +7,7 @@ generate_passwords:
 vpcs:
 - name: wrapper
 servers: 
-- name: logstash
+- name: frontend
   platform: centos7
   groomer: Ansible
   vpc:
@@ -18,7 +18,7 @@ servers:
   run_list:
   - mu-logstash
 #<% if cloud != "AWS" %>
-- name: logsearch
+- name: backend
   platform: centos7
   groomer: Ansible
   vpc:

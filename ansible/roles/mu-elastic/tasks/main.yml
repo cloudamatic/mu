@@ -36,6 +36,7 @@
   - elasticsearch
   - kibana
   - httpd-tools
+  - expect
 
 - name: ElasticSearch config files in /etc/elasticsearch
   copy:
@@ -47,7 +48,15 @@
   become: yes
   with_items:
   - jvm.options
-  - elasticsearch.yml
+
+- name: /etc/elasticsearch/elasticsearch.yml
+  template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  become: yes
 
 - name: Kibana config files in /etc/kibana
   copy:
@@ -73,3 +82,60 @@
   service:
     name: elasticsearch
     state: started
+
+# XXX (this insecure convolution belongs in some kind of shared library)
+# We have to go through this tempfile dance because jinja doesn't actually see
+# decrypted vault data, apparently, so as soon as we try to do anything other
+# than write the whole decrypted blob to a file it fails to decrypt. That's
+# even if we try the various workarounds from:
+# https://github.com/ansible/ansible/issues/24425
+- name: create Elastic password temp file (ugh)
+  tempfile:
+    state: file
+    suffix: temp
+  register: elasticpw_tmpfile
+- name: "Write Elastic password to temp file"
+  copy:
+    dest: "{{ elasticpw_tmpfile.path }}"
+    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
+- name: "Load Elastic password from temp file"
+  slurp:
+    src: "{{ elasticpw_tmpfile.path }}"
+  register: elasticpw_yaml
+- name: From tmp YAML to dict
+  set_fact:
+    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
+
+- name: decrypt elastic password
+  set_fact:
+    elasticpw: "{{ elasticpw_dict['password'] }}"
+
+- name: see if Elastic system passwords have been set
+  shell:
+    cmd: "/usr/share/elasticsearch/bin/elasticsearch-setup-passwords -s interactive 2>&1 | grep 'user has already been changed'"
+  ignore_errors: true
+  async: 30
+  poll: 5
+  no_log: true
+  register: passwords_set
+
+- name: Create password-setter script
+  template:
+    src: password_set.expect.j2
+    dest: "/root/password_set.expect"
+    mode: 0700
+    owner: root
+  become: yes
+  when: passwords_set is failed
+
+- name: set elastic system passwords
+  command:
+    cmd: "/root/password_set.expect"
+  no_log: true
+  become: yes
+  when: passwords_set is failed
+
+- name: Remove password-setter scripts
+  file:
+    path: /root/password_set.expect
+    state: absent

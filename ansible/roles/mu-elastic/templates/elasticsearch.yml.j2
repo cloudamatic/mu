@@ -87,7 +87,15 @@ path.logs: /var/log/elasticsearch
 #
 #action.destructive_requires_name: true
 
-cluster.initial_master_nodes: elasticsearch.local
+cluster.initial_master_nodes: {% for node,meta in mu_deployment['servers']['backend'].items() %}
+  {%- for k,v in meta.items() %}
+    {%- if k in ["private_ip_address"] %}
+{{ v }}
+    {%- endif %}
+  {%- endfor %}
+  {%- if not loop.last %},{%- endif %}
+{%- endfor %}
+
 xpack.security.enabled: true
 #discovery.type: single-node
 xpack.security.transport.ssl.enabled: true
@@ -99,3 +107,4 @@ xpack.security.http.ssl.keystore.path: "http.p12"
 #xpack.license.self_generated.type: basic
 #xpack.security.http.ssl.enabled: true
 #xpack.security.http.ssl.keystore.path: "/etc/elasticsearch/config/certs/elasticsearch/http.p12"
+network.host: _site_

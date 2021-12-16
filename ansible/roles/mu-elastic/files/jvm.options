@@ -14,7 +14,8 @@
 ##
 ################################################################
 
-
+# CVE-2021-44228
+-Dlog4j2.formatMsgNoLookups=true
 
 ################################################################
 ## IMPORTANT: JVM heap size
@@ -28,8 +29,8 @@
 ## example, to set the heap to 4 GB, create a new file in the
 ## jvm.options.d directory containing these lines:
 ##
--Xms1g
--Xmx3g
+-Xms5g
+-Xmx5g
 ##
 ## See https://www.elastic.co/guide/en/elasticsearch/reference/current/heap-size.html
 ## for more information
