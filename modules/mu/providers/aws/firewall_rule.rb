@@ -746,7 +746,7 @@ puts "REVOKE_RULES #{sg}"
                     ip_permissions: [ext_rule]
                   )
                 else
-                  MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).revoke_security_group_ingress(
+                  MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).revoke_security_group_egress(
                     group_id: @cloud_id,
                     ip_permissions: [ext_rule]
                   )
