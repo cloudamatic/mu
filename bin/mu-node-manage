@@ -60,14 +60,15 @@ end
 
 Thread.abort_on_exception = true
 master_pid = Process.pid
-$children = {}
+CHILDREN = {}
+SUMMARIES = []
 signals = Signal.list
 signals.keys.each { |sig|
   # Ruby 2.3 doesn't want to trap these
   next if ["ILL", "FPE", "KILL", "BUS", "SEGV", "STOP", "VTALRM"].include?(sig)
   Signal.trap(signals[sig]) do
     if Process.pid == master_pid
-      $children.each_pair { |pid, node|
+      CHILDREN.each_pair { |pid, node|
         if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)
           Process.kill("KILL", pid) # aka --dammit
         else
@@ -181,6 +182,7 @@ exit 1 if !ok
 def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, groomeronly: false)
   badnodes = []
   count = 0
+  pipes = {}
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
@@ -192,7 +194,10 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, 
             fw.groom
           }
           count = count + 1
+          # pipe to get our MU::SUMMARY messages across process boundaries
+          reader, writer = IO.pipe
           child = Process.fork {
+            reader.close
             begin
               type = "server"
               type = "server_pool" if server.config.has_key?("basis")
@@ -206,26 +211,37 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, 
               else
                 mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
               end
+              if MU.summary
+                MU.summary.each { |msg|
+                  writer.puts msg
+                }
+              end
+              writer.close
             rescue Exception => e
               MU.log e.inspect, MU::ERR, details: e.backtrace
               exit 1
             end
           }
-          $children[child] = mu_name
+          CHILDREN[child] = mu_name
+          pipes[child] = reader
         }
-        while $children.size >= $opts[:concurrent]-1
+        while CHILDREN.size >= $opts[:concurrent]-1
           child = Process.wait
+          SUMMARIES.concat(pipes[child].readlines)
+          pipes[child].close
           if !$?.success?
-            badnodes << $children[child]
+            badnodes << CHILDREN[child]
           end
-          $children.delete(child)
+          CHILDREN.delete(child)
         end
       }
     }
   }
   Process.waitall.each { |child|
+    SUMMARIES.concat(pipes[child[0]].readlines)
+    pipes[child[0]].close
     if !child[1].success?
-      badnodes << $children[child[0]]
+      badnodes << CHILDREN[child[0]]
     end
   }
 
@@ -347,19 +363,19 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
 
       }
-      $children[child] = nodename
-      while $children.size >= $opts[:concurrent] - 1
+      CHILDREN[child] = nodename
+      while CHILDREN.size >= $opts[:concurrent] - 1
         child = Process.wait
         if !$?.success?
-          badnodes << $children[child]
+          badnodes << CHILDREN[child]
         end
-        $children.delete(child)
+        CHILDREN.delete(child)
       end
     }
   }
   Process.waitall.each { |child|
     if !child[1].success?
-      badnodes << $children[child[0]]
+      badnodes << CHILDREN[child[0]]
     end
   }
 
@@ -656,20 +672,20 @@ def chefUpgrade(deploys = MU::MommaCat.listDeploys, nodes = [])
         rescue Exception
         end
       }
-      $children[child] = nodename
-      while $children.size >= $opts[:concurrent]-1
+      CHILDREN[child] = nodename
+      while CHILDREN.size >= $opts[:concurrent]-1
         child = Process.wait
         if !$?.success?
-          badnodes << $children[child]
+          badnodes << CHILDREN[child]
         end
-        $children.delete(child)
+        CHILDREN.delete(child)
       end
     }
   }
 
   Process.waitall.each { |child|
     if !child[1].success?
-      badnodes << $children[child[0]]
+      badnodes << CHILDREN[child[0]]
     end
   }
 
@@ -699,4 +715,10 @@ elsif $opts[:mode] == "groomeronly"
 elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
 # Need Google equiv and to select nodes correctly based on what cloud they're in
   updateAWSMetaData(do_deploys, do_nodes)
+end
+
+if !SUMMARIES.empty?
+  SUMMARIES.each { |msg|
+    puts msg
+  }
 end
