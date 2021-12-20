@@ -49,6 +49,7 @@
   - heartbeat-elastic
   - nginx
   - httpd-tools
+  - policycoreutils-python
 
 - name: Logstash config files in /etc/logstash
   copy:
@@ -59,6 +60,8 @@
   with_items:
   - jvm.options
   - logstash.yml
+  notify:
+  - Restart logstash
 
 - name: Logstash config files in /etc/logstash/conf.d
   copy:
@@ -69,6 +72,8 @@
   with_items:
   - 02-beats-input.conf
   - 10-rails-filter.conf
+  notify:
+  - Restart logstash
 
 # Our sibling ElasticSearch server will just be using certificates signed by
 # Mu's CA, so snag that for certificate verification
@@ -84,6 +89,8 @@
     src: 30-elasticsearch-output.conf.j2
     dest: /etc/logstash/conf.d/30-elasticsearch-output.conf
     mode: 0644
+  notify:
+  - Restart logstash
 
 - name: APM Server config
   template:
@@ -92,12 +99,16 @@
     owner: root
     group: apm-server
     mode: 0644
+  notify:
+  - Restart apm-server
 
 - name: Elastic Heartbeat config
   template:
     src: heartbeat.yml.j2
     dest: /etc/heartbeat/heartbeat.yml
     mode: 0600
+  notify:
+  - Restart heartbeat-elastic
 
 - name: Copy Nginx certificate into place
   copy:
@@ -105,6 +116,8 @@
     src: "/opt/mu/var/ssl/{{ inventory_hostname }}.crt"
     mode: 0644
   become: yes
+  notify:
+  - Restart nginx
 
 - name: Make sure /etc/ssl/private exists
   file:
@@ -118,6 +131,8 @@
     src: "/opt/mu/var/ssl/{{ inventory_hostname }}.key"
     mode: 0644
   become: yes
+  notify:
+  - Restart nginx
 
 - name: Nginx configs
   template:
@@ -128,6 +143,8 @@
   - apm.conf
   - default.conf
   - elastic.conf
+  notify:
+  - Restart nginx
 
 - name: Enable and start APM Server
   service:
@@ -176,9 +193,43 @@
   set_fact:
     elasticpw: "{{ elasticpw_dict['password'] }}"
 
-
 - name: set elastic password
   command:
     cmd: "/bin/htpasswd -b -c /etc/nginx/htpasswd.users elastic \"{{ elasticpw }}\""
-#  no_log: true
+  no_log: true
   become: yes
+
+- name: fix permissions on /etc/nginx/htpasswd.users
+  file:
+    path: /etc/nginx/htpasswd.users
+    owner: nginx
+    mode: 0600
+
+- name: check if Kibana port is allowed
+  shell: "/usr/sbin/semanage port -l | grep ^http_port_t | grep 5601"
+  ignore_errors: true
+  register: kibana_allowed
+  no_log: true
+  become: yes
+
+- name: Allow Nginx to connect to Kibana
+  command: "/usr/sbin/semanage port -a -t http_port_t -p tcp 5601"
+  become: yes
+  when: kibana_allowed is failed
+  notify:
+  - Restart nginx
+
+- name: check if Elastic port is allowed
+  shell: "/usr/sbin/semanage port -l | grep ^http_port_t | grep 9200"
+  ignore_errors: true
+  register: elastic_allowed
+  no_log: true
+  become: yes
+
+- name: Allow Nginx to connect to Elastic
+  command: "/usr/sbin/semanage port -m -t http_port_t -p tcp 9200"
+  ignore_errors: true
+  become: yes
+  when: elastic_allowed is failed
+  notify:
+  - Restart nginx

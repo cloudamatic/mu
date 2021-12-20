@@ -152,7 +152,7 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil, quiet: false)
+      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil, quiet: false, cmd_only: false)
         if vault.nil? or vault.empty?
           raise MuError, "Must call getSecret with at least a vault name"
         end
@@ -179,6 +179,7 @@ module MU
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
+          return cmd if cmd_only
           MU.log cmd if !quiet
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON or YAML, return it
@@ -211,8 +212,8 @@ module MU
       end
 
       # see {MU::Groomer::Ansible.getSecret}
-      def getSecret(vault: @server.mu_name, item: nil, field: nil, quiet: false)
-        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir, quiet: quiet)
+      def getSecret(vault: @server.mu_name, item: nil, field: nil, quiet: false, cmd_only: false)
+        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir, quiet: quiet, cmd_only: cmd_only)
       end
 
       # Delete a Ansible data bag / Vault
@@ -283,6 +284,15 @@ module MU
 
         cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.windows? ? @server.canonicalIP : @server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
+        if @server.config['vault_access']
+          @server.config['vault_access'].each { |entry|
+            vault = entry['vault'] || @server.deploy.deploy_id
+            begin
+              MU.log "To retrieve secret #{vault}:#{entry['item']} - "+getSecret(vault: vault, item: entry['item'], cmd_only: true), MU::SUMMARY
+            rescue MuNoSuchSecret
+            end
+          }
+        end
 
         retries = 0
         begin

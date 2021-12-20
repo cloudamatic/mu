@@ -1095,6 +1095,7 @@ retry
       def grantSecretAccess(vault, item)
         return if @secrets_granted["#{vault}:#{item}"] == item
         self.class.grantSecretAccess(@server.mu_name, vault, item)
+        MU.log %Q{To retrieve secret #{vault}:#{item} - #{@knife} vault show "#{vault}" "#{item}"}, MU::SUMMARY
         @secrets_granted["#{vault}:#{item}"] = item
       end
 

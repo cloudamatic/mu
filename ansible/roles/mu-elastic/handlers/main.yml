@@ -1,2 +1,10 @@
 ---
-# handlers file for mu-elastic
+- name: Restart elasticsearch
+  service:
+    name: elasticsearch
+    state: restarted
+
+- name: Restart kibana
+  service:
+    name: kibana
+    state: restarted

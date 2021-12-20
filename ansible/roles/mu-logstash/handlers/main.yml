@@ -1,2 +1,20 @@
 ---
-# handlers file for mu-logstash
+- name: Restart nginx
+  service:
+    name: nginx
+    state: restarted
+
+- name: Restart logstash
+  service:
+    name: logstash
+    state: restarted
+
+- name: Restart apm-server
+  service:
+    name: apm-server
+    state: restarted
+
+- name: Restart heartbeat-elastic
+  service:
+    name: heartbeat-elastic
+    state: restarted

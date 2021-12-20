@@ -48,6 +48,8 @@
   become: yes
   with_items:
   - jvm.options
+  notify:
+  - Restart elasticsearch
 
 - name: /etc/elasticsearch/elasticsearch.yml
   template:
@@ -57,6 +59,8 @@
     owner: root
     group: elasticsearch
   become: yes
+  notify:
+  - Restart elasticsearch
 
 - name: Kibana config files in /etc/kibana
   copy:
@@ -66,6 +70,8 @@
   become: yes
   with_items:
   - kibana.yml
+  notify:
+  - Restart kibana
 
 - name: Copy ElasticSearch certificate store into place
   copy:
@@ -77,6 +83,8 @@
   with_items:
   - elastic-certificates.p12
   - http.p12
+  notify:
+  - Restart elasticsearch
 
 - name: "Enable and start ElasticSearch"
   service:
@@ -135,7 +143,12 @@
   become: yes
   when: passwords_set is failed
 
-- name: Remove password-setter scripts
-  file:
-    path: /root/password_set.expect
-    state: absent
+#- name: Remove password-setter scripts
+#  file:
+#    path: /root/password_set.expect
+#    state: absent
+
+- name: "Enable and start Kibana"
+  service:
+    name: kibana
+    state: started

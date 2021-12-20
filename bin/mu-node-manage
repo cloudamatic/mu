@@ -218,10 +218,12 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, 
               end
               writer.close
             rescue Exception => e
+              writer.close
               MU.log e.inspect, MU::ERR, details: e.backtrace
               exit 1
             end
           }
+          writer.close
           CHILDREN[child] = mu_name
           pipes[child] = reader
         }
@@ -243,7 +245,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, 
     if !child[1].success?
       badnodes << CHILDREN[child[0]]
     end
-  }
+  } 
 
   if badnodes.size > 0
     MU.log "Not all Momma Cat runs exited cleanly", MU::WARN, details: badnodes
@@ -718,7 +720,7 @@ elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
 end
 
 if !SUMMARIES.empty?
-  SUMMARIES.each { |msg|
+  SUMMARIES.sort.uniq.each { |msg|
     puts msg
   }
 end
