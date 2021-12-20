@@ -205,7 +205,7 @@
     owner: nginx
     mode: 0600
 
-- name: check if Kibana port is allowed
+- name: Check whether Kibana port is allowed
   shell: "/usr/sbin/semanage port -l | grep ^http_port_t | grep 5601"
   ignore_errors: true
   register: kibana_allowed
@@ -219,7 +219,7 @@
   notify:
   - Restart nginx
 
-- name: check if Elastic port is allowed
+- name: Check whether Elastic port is allowed
   shell: "/usr/sbin/semanage port -l | grep ^http_port_t | grep 9200"
   ignore_errors: true
   register: elastic_allowed

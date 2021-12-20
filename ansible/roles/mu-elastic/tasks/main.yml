@@ -18,6 +18,7 @@
     protocol: tcp
     jump: ACCEPT
   with_items:
+  - "5601"
   - "9200"
   - "9300"
 
@@ -61,17 +62,6 @@
   become: yes
   notify:
   - Restart elasticsearch
-
-- name: Kibana config files in /etc/kibana
-  copy:
-    dest: "/etc/kibana/{{ item }}"
-    src: "{{ item }}"
-    mode: 0640
-  become: yes
-  with_items:
-  - kibana.yml
-  notify:
-  - Restart kibana
 
 - name: Copy ElasticSearch certificate store into place
   copy:
@@ -143,10 +133,28 @@
   become: yes
   when: passwords_set is failed
 
-#- name: Remove password-setter scripts
-#  file:
-#    path: /root/password_set.expect
-#    state: absent
+- name: Remove password-setter scripts
+  file:
+    path: /root/password_set.expect
+    state: absent
+
+- name: Copy Mu's CA to /etc/kibana/elasticsearch-ca.pem
+  copy:
+    dest: /etc/kibana/elasticsearch-ca.pem
+    src: /opt/mu/var/ssl/Mu_CA.pem
+    mode: 0644
+  become: yes
+  notify:
+  - Restart kibana
+
+- name: Kibana config files in /etc/kibana
+  template:
+    dest: /etc/kibana/kibana.yml
+    src: kibana.yml.j2
+    mode: 0640
+  become: yes
+  notify:
+  - Restart kibana
 
 - name: "Enable and start Kibana"
   service:
