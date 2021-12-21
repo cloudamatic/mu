@@ -350,8 +350,9 @@ module MU
           play["become"] = "yes"
         end
 
-        if @server.config['run_list'] and !@server.config['run_list'].empty?
-          play["roles"] = @server.config['run_list']
+        play["roles"] = ["mu-base"]
+        if @server.config['run_list']
+          play["roles"].concat(@server.config['run_list'])
         end
 
         if @server.config['ansible_vars']
@@ -390,6 +391,7 @@ module MU
         allvars = {
           "mu_deployment" => MU::Config.stripConfig(@server.deploy.deployment),
           "mu_service_name" => @config["name"],
+          "mu_name" => @server.mu_name,
           "mu_deploy_id" => @server.deploy.deploy_id,
           "mu_canonical_ip" => @server.canonicalIP,
           "mu_admin_email" => $MU_CFG['mu_admin_email'],

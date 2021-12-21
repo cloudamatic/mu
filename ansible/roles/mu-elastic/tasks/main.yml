@@ -13,14 +13,15 @@
 - name: allow inbound for internal services
   iptables:
     chain: INPUT
-    source: "{{ mu_deployment['vpcs']['wrapper']['ip_block'] }}"
+    source: "0.0.0.0/0"
     destination_port: "{{ item }}"
     protocol: tcp
     jump: ACCEPT
   with_items:
-  - "5601"
-  - "9200"
-  - "9300"
+  - "5601" # Kibana
+  - "8200" # APM
+  - "9200" # Elastic
+  - "9300" # Elastic
 
 - name: add yum repo for ElasticSearch
   yum_repository:
@@ -35,9 +36,37 @@
     state: present
   with_items:
   - elasticsearch
+  - apm-server
   - kibana
   - httpd-tools
   - expect
+
+# XXX (this insecure convolution belongs in some kind of shared library)
+# We have to go through this tempfile dance because jinja doesn't actually see
+# decrypted vault data, apparently, so as soon as we try to do anything other
+# than write the whole decrypted blob to a file it fails to decrypt. That's
+# even if we try the various workarounds from:
+# https://github.com/ansible/ansible/issues/24425
+- name: create Elastic password temp file (ugh)
+  tempfile:
+    state: file
+    suffix: temp
+  register: elasticpw_tmpfile
+- name: "Write Elastic password to temp file"
+  copy:
+    dest: "{{ elasticpw_tmpfile.path }}"
+    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
+- name: "Load Elastic password from temp file"
+  slurp:
+    src: "{{ elasticpw_tmpfile.path }}"
+  register: elasticpw_yaml
+- name: From tmp YAML to dict
+  set_fact:
+    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
+
+- name: decrypt elastic password
+  set_fact:
+    elasticpw: "{{ elasticpw_dict['password'] }}"
 
 - name: ElasticSearch config files in /etc/elasticsearch
   copy:
@@ -81,32 +110,20 @@
     name: elasticsearch
     state: started
 
-# XXX (this insecure convolution belongs in some kind of shared library)
-# We have to go through this tempfile dance because jinja doesn't actually see
-# decrypted vault data, apparently, so as soon as we try to do anything other
-# than write the whole decrypted blob to a file it fails to decrypt. That's
-# even if we try the various workarounds from:
-# https://github.com/ansible/ansible/issues/24425
-- name: create Elastic password temp file (ugh)
-  tempfile:
-    state: file
-    suffix: temp
-  register: elasticpw_tmpfile
-- name: "Write Elastic password to temp file"
-  copy:
-    dest: "{{ elasticpw_tmpfile.path }}"
-    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
-- name: "Load Elastic password from temp file"
-  slurp:
-    src: "{{ elasticpw_tmpfile.path }}"
-  register: elasticpw_yaml
-- name: From tmp YAML to dict
-  set_fact:
-    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
+- name: APM Server config
+  template:
+    src: apm-server.yml.j2
+    dest: /etc/apm-server/apm-server.yml
+    owner: root
+    group: apm-server
+    mode: 0644
+  notify:
+  - Restart apm-server
 
-- name: decrypt elastic password
-  set_fact:
-    elasticpw: "{{ elasticpw_dict['password'] }}"
+- name: Enable and start APM Server
+  service:
+    name: apm-server
+    state: started
 
 - name: see if Elastic system passwords have been set
   shell:
@@ -138,14 +155,18 @@
     path: /root/password_set.expect
     state: absent
 
-- name: Copy Mu's CA to /etc/kibana/elasticsearch-ca.pem
+- name: Copy Mu's CA
   copy:
-    dest: /etc/kibana/elasticsearch-ca.pem
+    dest: "/etc/{{ item }}/elasticsearch-ca.pem"
     src: /opt/mu/var/ssl/Mu_CA.pem
     mode: 0644
   become: yes
   notify:
   - Restart kibana
+  - Restart apm-server
+  with_items:
+  - kibana
+  - apm-server
 
 - name: Kibana config files in /etc/kibana
   template:

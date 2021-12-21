@@ -8,3 +8,8 @@
   service:
     name: kibana
     state: restarted
+
+- name: Restart apm-server
+  service:
+    name: apm-server
+    state: restarted

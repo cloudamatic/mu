@@ -10,17 +10,6 @@
     name: iptables-services
     state: present
 
-- name: allow inbound for internal services
-  iptables:
-    chain: INPUT
-    source: "{{ mu_deployment['vpcs']['wrapper']['ip_block'] }}"
-    destination_port: "{{ item }}"
-    protocol: tcp
-    jump: ACCEPT
-  with_items:
-  - "8080"
-  - "8008"
-
 - name: allow inbound for public traffic
   iptables:
     chain: INPUT
@@ -31,6 +20,8 @@
   with_items:
   - "80"
   - "443"
+  - "8080"
+  - "8008"
 
 - name: add yum repo for ElasticSearch
   yum_repository:
@@ -45,11 +36,38 @@
     state: present
   with_items:
   - logstash
-  - apm-server
   - heartbeat-elastic
   - nginx
   - httpd-tools
   - policycoreutils-python
+
+# XXX (this insecure convolution belongs in some kind of shared library)
+# We have to go through this tempfile dance because jinja doesn't actually see
+# decrypted vault data, apparently, so as soon as we try to do anything other
+# than write the whole decrypted blob to a file it fails to decrypt. That's
+# even if we try the various workarounds from:
+# https://github.com/ansible/ansible/issues/24425
+- name: create Elastic password temp file (ugh)
+  tempfile:
+    state: file
+    suffix: temp
+  register: elasticpw_tmpfile
+- name: "Write Elastic password to temp file"
+  copy:
+    dest: "{{ elasticpw_tmpfile.path }}"
+    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
+- name: "Load Elastic password from temp file"
+  slurp:
+    src: "{{ elasticpw_tmpfile.path }}"
+  register: elasticpw_yaml
+- name: From tmp YAML to dict
+  set_fact:
+    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
+
+- name: decrypt elastic password
+  set_fact:
+    elasticpw: "{{ elasticpw_dict['password'] }}"
+
 
 - name: Logstash config files in /etc/logstash
   copy:
@@ -91,16 +109,6 @@
     mode: 0644
   notify:
   - Restart logstash
-
-- name: APM Server config
-  template:
-    src: apm-server.yml.j2
-    dest: /etc/apm-server/apm-server.yml
-    owner: root
-    group: apm-server
-    mode: 0644
-  notify:
-  - Restart apm-server
 
 - name: Elastic Heartbeat config
   template:
@@ -146,11 +154,6 @@
   notify:
   - Restart nginx
 
-- name: Enable and start APM Server
-  service:
-    name: apm-server
-    state: started
-
 - name: Enable and start logstash
   service:
     name: logstash
@@ -165,33 +168,6 @@
   service:
     name: nginx
     state: started
-
-# XXX (this insecure convolution belongs in some kind of shared library)
-# We have to go through this tempfile dance because jinja doesn't actually see
-# decrypted vault data, apparently, so as soon as we try to do anything other
-# than write the whole decrypted blob to a file it fails to decrypt. That's
-# even if we try the various workarounds from:
-# https://github.com/ansible/ansible/issues/24425
-- name: create Elastic password temp file (ugh)
-  tempfile:
-    state: file
-    suffix: temp
-  register: elasticpw_tmpfile
-- name: "Write Elastic password to temp file"
-  copy:
-    dest: "{{ elasticpw_tmpfile.path }}"
-    content: "{{ mu_vaults[mu_deploy_id]['elasticpw'] }}"
-- name: "Load Elastic password from temp file"
-  slurp:
-    src: "{{ elasticpw_tmpfile.path }}"
-  register: elasticpw_yaml
-- name: From tmp YAML to dict
-  set_fact:
-    elasticpw_dict: "{{ elasticpw_yaml.content | b64decode | from_yaml }}"
-
-- name: decrypt elastic password
-  set_fact:
-    elasticpw: "{{ elasticpw_dict['password'] }}"
 
 - name: set elastic password
   command:

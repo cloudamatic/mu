@@ -1,5 +1,5 @@
 apm-server:
-  host: "localhost:8200"
+  host: "0.0.0.0:8200"
   concurrent_requests: 5
   rum:
     enabled: true
@@ -15,11 +15,11 @@ output.elasticsearch:
   {%- if not loop.last %},{%- endif %}
 {%- endfor %}]
   username: "elastic"
-  password: "123456"
+  password: "{{ elasticpw }}"
   ssl:
     enabled: true
     verification_mode: none
-    certificate_authorities: ["/etc/logstash/elasticsearch-ca.pem"]
+    certificate_authorities: ["/etc/apm-server/elasticsearch-ca.pem"]
 
 #queue.mem.events: 4096
 
