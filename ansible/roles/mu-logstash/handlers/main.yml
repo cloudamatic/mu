@@ -13,3 +13,8 @@
   service:
     name: heartbeat-elastic
     state: restarted
+
+- name: Restart apm-server
+  service:
+    name: apm-server
+    state: restarted

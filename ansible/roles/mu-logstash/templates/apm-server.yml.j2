@@ -3,6 +3,10 @@ apm-server:
   concurrent_requests: 5
   rum:
     enabled: true
+  kibana:
+    enabled: true
+    username: "elastic"
+    password: "{{ elasticpw }}"
 
 output.elasticsearch:
   hosts: [
@@ -16,10 +20,13 @@ output.elasticsearch:
 {%- endfor %}]
   username: "elastic"
   password: "{{ elasticpw }}"
+  protocol: "https"
+  worker: 2
   ssl:
     enabled: true
     verification_mode: none
     certificate_authorities: ["/etc/apm-server/elasticsearch-ca.pem"]
+    supported_protocols: ["TLSv1.2"]
 
 #queue.mem.events: 4096
 

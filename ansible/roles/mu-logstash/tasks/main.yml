@@ -22,6 +22,7 @@
   - "443"
   - "8080"
   - "8008"
+  - "5044"
 
 - name: add yum repo for ElasticSearch
   yum_repository:
@@ -38,6 +39,7 @@
   - logstash
   - heartbeat-elastic
   - nginx
+  - apm-server
   - httpd-tools
   - policycoreutils-python
 
@@ -93,14 +95,18 @@
   notify:
   - Restart logstash
 
-# Our sibling ElasticSearch server will just be using certificates signed by
-# Mu's CA, so snag that for certificate verification
-- name: Copy Mu's CA to /etc/logstash/elasticsearch-ca.pem
+- name: Copy Mu's CA
   copy:
-    dest: /etc/logstash/elasticsearch-ca.pem
+    dest: "/etc/{{ item }}/elasticsearch-ca.pem"
     src: /opt/mu/var/ssl/Mu_CA.pem
     mode: 0644
   become: yes
+  notify:
+  - Restart logstash
+  - Restart apm-server
+  with_items:
+  - logstash
+  - apm-server
 
 - name: Logstash Elastic integration config
   template:
@@ -209,3 +215,18 @@
   when: elastic_allowed is failed
   notify:
   - Restart nginx
+
+- name: APM Server config
+  template:
+    src: apm-server.yml.j2
+    dest: /etc/apm-server/apm-server.yml
+    owner: root
+    group: apm-server
+    mode: 0644
+  notify:
+  - Restart apm-server
+
+- name: Enable and start APM Server
+  service:
+    name: apm-server
+    state: started

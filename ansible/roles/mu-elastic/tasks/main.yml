@@ -36,8 +36,8 @@
     state: present
   with_items:
   - elasticsearch
-  - apm-server
   - kibana
+  - filebeat
   - httpd-tools
   - expect
 
@@ -110,21 +110,6 @@
     name: elasticsearch
     state: started
 
-- name: APM Server config
-  template:
-    src: apm-server.yml.j2
-    dest: /etc/apm-server/apm-server.yml
-    owner: root
-    group: apm-server
-    mode: 0644
-  notify:
-  - Restart apm-server
-
-- name: Enable and start APM Server
-  service:
-    name: apm-server
-    state: started
-
 - name: see if Elastic system passwords have been set
   shell:
     cmd: "/usr/share/elasticsearch/bin/elasticsearch-setup-passwords -s interactive 2>&1 | grep 'user has already been changed'"
@@ -163,10 +148,8 @@
   become: yes
   notify:
   - Restart kibana
-  - Restart apm-server
   with_items:
   - kibana
-  - apm-server
 
 - name: Kibana config files in /etc/kibana
   template:
