@@ -22,6 +22,7 @@
   - "443"
   - "8080"
   - "8008"
+  - "8200"
   - "5044"
 
 - name: add yum repo for ElasticSearch

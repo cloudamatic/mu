@@ -99,11 +99,11 @@ module MU
         }
       end
 
-      @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+      @@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
       # @return [String]
-      def self.knife;
-        @knife;
+      def self.knife
+        @@knife
       end
 
       attr_reader :knife
@@ -906,7 +906,7 @@ retry
         vaults_to_clean.each { |vault|
           MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
           MU.log "Purging unknown clients from #{vault['vault']} #{vault['item']}", MU::DEBUG
-          output = %x{#{@knife} data bag show "#{vault['vault']}" "#{vault['item']}_keys" --format json}
+          output = %x{#{knife} data bag show "#{vault['vault']}" "#{vault['item']}_keys" --format json}
           # This is an ugly workaround for --clean-unknown-clients, which in
           # fact cleans known clients.
           if output
@@ -1095,7 +1095,7 @@ retry
       def grantSecretAccess(vault, item)
         return if @secrets_granted["#{vault}:#{item}"] == item
         self.class.grantSecretAccess(@server.mu_name, vault, item)
-        MU.log %Q{To retrieve secret #{vault}:#{item} - #{@knife} vault show "#{vault}" "#{item}"}, MU::SUMMARY
+        MU.log %Q{To retrieve secret #{vault}:#{item} - #{self.class.knife} vault show "#{vault}" "#{item}"}, MU::SUMMARY
         @secrets_granted["#{vault}:#{item}"] = item
       end
 
