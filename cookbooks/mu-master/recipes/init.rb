@@ -679,12 +679,12 @@ knife_cfg = "-c /root/.chef/knife.rb"
 execute "create MU-MASTER Chef client" do
 # XXX I dislike --ssh-verify-host-key=never intensely, but the CLI-documented 'accept_new' doesn't actually work
   if SSH_USER == "root"
-    command "/opt/chef/bin/knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
+    command "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
   else
-    command "/opt/chef/bin/knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
+    command "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
-  only_if "/opt/chef/bin/knife node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
-  not_if "/opt/chef/bin/knife node #{knife_cfg} list | grep '^MU-MASTER$'"
+  only_if "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
+  not_if "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife node #{knife_cfg} list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
   notifies :delete, "file[/etc/chef/client.rb]", :before
   notifies :delete, "file[/etc/chef/client.pem]", :before
