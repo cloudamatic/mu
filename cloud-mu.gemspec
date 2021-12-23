@@ -38,8 +38,8 @@ EOF
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable', '~> 2.5'
-  s.add_runtime_dependency "aws-sdk-core", "~> 3.119" # need to pin this so Chef doesn't twist itself in knots
-  s.add_runtime_dependency "aws-sdk", "~> 3.1"
+  s.add_runtime_dependency "aws-sdk-core", "< 3.120" # need to pin this so Chef doesn't twist itself in knots
+  s.add_runtime_dependency "aws-sdk", "~> 3"
   s.add_runtime_dependency 'azure_sdk', '~> 0.65'
   s.add_runtime_dependency 'bundler', "~> 2.1.4"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
