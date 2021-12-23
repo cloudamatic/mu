@@ -20,7 +20,12 @@ set -e
 #################################################
 
 scriptpath="`dirname $0`"
-knife="/opt/chef/bin/knife"
+# Chef can't pick a lane
+if [ -x "/opt/chef/bin/knife" ];then
+  knife="/opt/chef/bin/knife"
+elif [ -x "/opt/chef/embedded/bin/knife" ];then
+  knife="/opt/chef/embedded/bin/knife"
+fi
 
 USER=`whoami`
 STARTDIR=`pwd`
