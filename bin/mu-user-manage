@@ -120,7 +120,7 @@ end
 
 $password = nil
 if $opts[:generate_password]
-  $password = MU.generateWindowsPassword
+  $password = MU.generatePassword
 elsif $opts[:password]
   $password = $opts[:password]
 elsif $opts[:interactive]
