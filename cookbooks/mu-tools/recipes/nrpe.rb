@@ -45,7 +45,7 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
   
     case elversion
     when 7
-      %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each { |f|
+      %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp nrpe_conf_d.pp}.each { |f|
         cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
           source f
         end
@@ -62,6 +62,21 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
         command "/usr/sbin/semodule -i nrpe_check_disk.pp"
         cwd Chef::Config[:file_cache_path]
         not_if "/usr/sbin/semodule -l | grep nrpe_check_disk"
+        notifies :restart, "service[nrpe]", :delayed
+      end
+  
+      execute "Allow NRPE to read /etc/nagios/nrpe.d through SELinux" do
+        command "/usr/sbin/semodule -i nrpe_conf_d.pp"
+        cwd Chef::Config[:file_cache_path]
+        not_if "/usr/sbin/semodule -l | grep nrpe_conf_d"
+        notifies :restart, "service[nrpe]", :delayed
+      end
+
+      package "nagios-plugins-check-updates"
+      nrpe_check "check_updates" do
+        command "#{node['nrpe']['plugin_dir']}/check_updates --security-only"
+        action :add
+        notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
         notifies :restart, "service[nrpe]", :delayed
       end
     when 6
@@ -113,6 +128,7 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
       end
     end
 
+    execute "restorecon -Rv /etc/nagios/nrpe.d"
     service "nrpe" do
       action [:enable, :start]
     end

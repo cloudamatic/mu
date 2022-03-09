@@ -1,0 +1,8 @@
+{
+	"id": "rhel7_updates",
+  "hostgroup_name": "mu-node",
+	"command_line": "$USER1$/check_nrpe -H $HOSTADDRESS$ -t 60 -c check_updates",
+  "check_interval": 120,
+  "retry_interval": 3600,
+  "notification_interval": 14400
+}
