@@ -1,0 +1,1 @@
+nrpe    ALL=(ALL)    NOPASSWD: /bin/apm-server test output

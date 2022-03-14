@@ -38,8 +38,27 @@
   - check_disk.cfg
   - check_mem.cfg
   - check_updates.cfg
+  - check_logstash.cfg
+  - check_apm.cfg
   notify:
   - Restart NRPE
+
+- name: Copy NRPE plugins
+  copy:
+    dest: "/usr/lib64/nagios/plugins/{{ item }}"
+    src: "{{ item }}.sh"
+    mode: 0755
+  become: yes
+  with_items:
+  - check_logstash
+  - check_apm
+
+- name: Add sudo line for nrpe -> apm-server
+  copy:
+    dest: /etc/sudoers.d/91-nrpe-apm
+    src: "nrpe-apm-sudo"
+    mode: 0440
+  become: yes
 
 - name: Copy SELinux modules for NRPE
   copy:

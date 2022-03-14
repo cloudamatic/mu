@@ -71,7 +71,6 @@
   set_fact:
     elasticpw: "{{ elasticpw_dict['password'] }}"
 
-
 - name: Logstash config files in /etc/logstash
   copy:
     dest: "/etc/logstash/{{ item }}"

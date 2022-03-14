@@ -1,0 +1,5 @@
+{
+  "id": "apm_backend_connect",
+  "hostgroup_name": "mu-logstash",
+  "command_line": "$USER1$/check_nrpe -H $HOSTADDRESS$ -c check_apm"
+}

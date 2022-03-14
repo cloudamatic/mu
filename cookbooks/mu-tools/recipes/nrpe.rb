@@ -111,7 +111,7 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
       notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
       notifies :restart, "service[nrpe]", :delayed
     end
-  
+
     # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
     # file "/etc/nagios/nrpe.d/check_disk.cfg" do
       # mode 0640
