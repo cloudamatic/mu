@@ -167,7 +167,6 @@ module MU
       @need_deploy_flush = false
       @node_cert_semaphore = Mutex.new
       @deployment = deployment_data
-
       @deployment['mu_public_ip'] = MU.mu_public_ip
       @private_key = nil
       @public_key = nil
@@ -203,6 +202,7 @@ module MU
       @environment ||= MU.environment
 
       loadDeploy(set_context_to_me: set_context_to_me)
+      @deployment['mu_all_ips'] ||= [MU.mu_public_ip, MU.my_private_ip].uniq
       if !deploy_secret.nil? and !authKey(deploy_secret)
         raise DeployInitializeError, "Client request did not include a valid deploy authorization secret. Verify that userdata runs correctly?"
       end

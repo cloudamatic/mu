@@ -376,6 +376,15 @@ rpms.each_pair { |pkg, src|
   end
 }
 
+execute "/sbin/ldconfig" do
+  action :nothing
+end
+
+file "/etc/ld.so.conf.d/muby.conf" do
+  content "/usr/local/ruby-current/lib\n"
+  notifies :run, "execute[/sbin/ldconfig]", :immediately
+end
+
 package ["jq"] do
   ignore_failure true # sometimes we can't see EPEL immediately
 end

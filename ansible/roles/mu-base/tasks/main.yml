@@ -2,3 +2,69 @@
 - name: Set hostname
   hostname:
     name: "{{ mu_name }}"
+
+- name: install basic things
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+  - nrpe
+  - rsyslog
+  - rsyslog-gnutls
+  - policycoreutils-python
+  - nagios-plugins-disk
+  - nagios-plugins-check-updates
+
+- name: /etc/nagios/nrpe.cfg
+  template:
+    src: nrpe.cfg.j2
+    dest: /etc/nagios/nrpe.cfg
+    mode: 0644
+    owner: root
+    group: root
+  become: yes
+  notify:
+  - Restart NRPE
+
+- name: add NRPE checks
+  copy:
+    dest: "/etc/nagios/nrpe.d/{{ item }}"
+    src: "{{ item }}"
+    mode: 0644
+    owner: nrpe
+    group: nrpe
+  become: yes
+  with_items:
+  - check_disk.cfg
+  - check_mem.cfg
+  - check_updates.cfg
+  notify:
+  - Restart NRPE
+
+- name: Copy SELinux modules for NRPE
+  copy:
+    dest: "/root/{{ item }}.pp"
+    src: "/opt/mu/lib/cookbooks/mu-tools/files/default/{{ item }}.pp"
+  with_items:
+  - nrpe_file
+  - nrpe_check_disk
+  - nrpe_conf_d
+
+# XXX a proper guard would be nice
+- name: Install SELinux modules for NRPE
+  shell: "( /usr/sbin/semodule -l | grep '^{{ item }} ' ) || /usr/sbin/semodule -i /root/{{ item }}.pp"
+  with_items:
+  - nrpe_file
+  - nrpe_check_disk
+  - nrpe_conf_d
+  notify:
+  - Restart NRPE
+
+- name: allow inbound for NRPE
+  iptables:
+    chain: INPUT
+    source: "0.0.0.0/0"
+    destination_port: "5666"
+    protocol: tcp
+    jump: ACCEPT
+  loop: "{{ mu_deployment['mu_all_ips'] }}"

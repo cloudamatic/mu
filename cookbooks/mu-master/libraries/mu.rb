@@ -27,3 +27,25 @@ elsif File.readable?("/opt/mu/lib/modules/mu-load-config.rb")
 end
 
 require "mu"
+
+def baskets
+  baskets = {}
+  if Dir.exists?("/opt/mu/var/deployments")
+    Dir.glob("/opt/mu/var/deployments/*/basket_of_kittens.json").each { |basket_json|
+      basket_json =~ /^\/opt\/mu\/var\/deployments\/([^\/]+)\/basket_of_kittens.json$/
+      baskets[Regexp.last_match[1]] = JSON.parse(File.read(basket_json))
+    }
+  end
+  baskets
+end
+
+def deployments
+  deploys = {}
+  if Dir.exists?("/opt/mu/var/deployments")
+    Dir.glob("/opt/mu/var/deployments/*/deployment.json").each { |dep_json|
+      dep_json =~ /^\/opt\/mu\/var\/deployments\/([^\/]+)\/deployment.json$/
+      deploys[Regexp.last_match[1]] = JSON.parse(File.read(dep_json))
+    }
+  end
+  deploys
+end

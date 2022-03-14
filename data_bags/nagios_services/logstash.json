@@ -1,0 +1,5 @@
+{
+  "id": "logstash",
+  "hostgroup_name": "mu-logstash",
+  "command_line": "$USER1$/check_tcp -H $HOSTADDRESS$ -p 5044"
+}

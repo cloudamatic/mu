@@ -1,2 +1,5 @@
 ---
-# handlers file for mu-base
+- name: Restart NRPE
+  service:
+    name: nrpe
+    state: restarted

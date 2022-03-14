@@ -20,6 +20,18 @@ include_recipe "mu-nagios::server_source"
 include_recipe "mu-nagios"
 include_recipe 'mu-master::firewall-holes'
 
+log "#{node['recipes']}"
+
+# Define this so it's present for solo runs of this recipe
+if !node['recipes'].include?("mu-master::default")
+  service 'apache2' do
+    extend Apache2::Cookbook::Helpers
+    service_name lazy { apache_platform_service_name }
+    supports restart: true, status: true, reload: true
+    action :enable
+  end
+end
+
 if $MU_CFG['disable_nagios']
   log "Ignoring Nagios setup per Mu config"
 else
@@ -130,6 +142,41 @@ else
     end
   }
 
+  # Fish up any non-Chef hosts, which otherwise won't appear in Chef's
+  # inventory, and tell Nagios about them.
+  non_chef = {}
+  baskets.each_pair { |deploy_id, basket|
+    if basket["servers"]
+      basket["servers"].each { |server|
+        next if server["groomer"] == "Chef"
+        non_chef[deploy_id] ||= []
+        non_chef[deploy_id] << server
+      }
+    end
+    if basket["server_pools"]
+      basket["server_pools"].each { |pool|
+        next if pool["groomer"] == "Chef"
+        non_chef[deploy_id] ||= []
+        non_chef[deploy_id] << pool
+      }
+    end
+  }
+  deploy_metadata = deployments()
+  non_chef.each_pair { |deploy_id, servers|
+    servers.each { |server_blob|
+      servername = server_blob["name"]
+      platform = server_blob["platform"] =~ /^win/ ? "windows" : "linux"
+      deploy_metadata[deploy_id]['servers'][servername].each_pair { |mu_name, server|
+        nagios_host mu_name do
+          options(
+            "hostgroups" => ([platform] + server["run_list"] + ["mu-node"] + [deploy_metadata[deploy_id]["environment"]]).join(","),
+            "address" => server["private_ip_address"]
+          )
+        end
+      }
+    }
+  }
+
   ["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/www/html/docs"].each { |dir|
     if Dir.exist?(dir)
       execute "chcon -R -h -t httpd_sys_content_t #{dir}" do
@@ -185,11 +232,32 @@ else
     notifies :restart, "service[nrpe]", :delayed
   end
 
+  cookbook_file "/usr/lib64/nagios/plugins/check_elastic" do
+    source "check_elastic.sh"
+    mode 0755
+    owner "root"
+  end
+
+  cookbook_file "/usr/lib64/nagios/plugins/check_kibana" do
+    source "check_kibana.rb"
+    mode 0755
+    owner "root"
+  end
+
+  nagios_command "check_elastic" do
+    options 'command_line' => %Q{$USER1$/check_elastic -H $HOSTADDRESS$ -t status -S -u $ARG1$ -p $ARG2$}
+  end
+
+  nagios_command "check_kibana" do
+    options 'command_line' => %Q{$USER1$/check_kibana -h $HOSTADDRESS$ -u $ARG1$ -p $ARG2$}
+  end
+
+
   file "/etc/sysconfig/nrpe" do
     content "NRPE_SSL_OPT=\"\"\n"
   end
 
-  #Sometimes doesn’t exist on the first run
+  # Sometimes doesn't exist on the first run
   directory "/opt/mu/var/nagios_user_home" do
     owner "nagios"
   	group "nagios"
