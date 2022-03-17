@@ -1,0 +1,28 @@
+{%- if application_attributes is defined and "cloudtrail_sources" in application_attributes: %}
+{% for trail in application_attributes["cloudtrail_sources"]: %}
+input {
+  s3 {
+    bucket => "{{ trail['bucket'] }}"
+    prefix => "AWSLogs/"
+    codec => cloudtrail {}
+    ecs_compatibility => v1
+    id => "cloudtrail{{ trail['tag'] }}"
+{%- if "role_arn" in trail %}
+    role_arn => "{{ trail["role_arn"] }}"
+{%- endif %}
+    tags => ["AWS", "cloudtrail", "{{ trail['tag'] }}"]
+    type => "cloudtrail"
+  }
+}
+{%- endfor %}
+{%- endif %}
+
+filter {
+  if [type] == "cloudtrail" {
+    geoip {
+      source => "sourceIPAddress"
+      ecs_compatibility => v1
+      target => "geoip"
+    }
+  }
+}

@@ -92,8 +92,6 @@
   with_items:
   - 02-beats-input.conf
   - 10-rails-filter.conf
-  notify:
-  - Restart logstash
 
 - name: Copy Mu's CA
   copy:
@@ -113,8 +111,12 @@
     src: 30-elasticsearch-output.conf.j2
     dest: /etc/logstash/conf.d/30-elasticsearch-output.conf
     mode: 0644
-  notify:
-  - Restart logstash
+
+- name: Logstash CloudTrail integration config
+  template:
+    src: 20-cloudtrail.conf.j2
+    dest: /etc/logstash/conf.d/20-cloudtrail.conf
+    mode: 0644
 
 - name: Elastic Heartbeat config
   template:
@@ -186,6 +188,26 @@
     path: /etc/nginx/htpasswd.users
     owner: nginx
     mode: 0600
+
+- name: Check whether logstash CloudTrail plugin is installed
+  shell: "/usr/share/logstash/bin/logstash-plugin list logstash-codec-cloudtrail"
+  ignore_errors: true
+  register: cloudtrail_present
+  no_log: true
+  become: yes
+
+- name: Install logstash CloudTrail plugin
+  shell: /usr/share/logstash/bin/logstash-plugin install logstash-codec-cloudtrail
+  become: yes
+  when: cloudtrail_present is failed
+  notify:
+  - Restart logstash
+
+- name: Fix permissions on Logstash plugins
+  shell: |
+    find /usr/share/logstash/vendor/bundle/jruby/ -type d -exec chmod go+rx {} \;
+    find /usr/share/logstash/vendor/bundle/jruby/ -type f -exec chmod go+r {} \;
+  become: yes
 
 - name: Check whether Kibana port is allowed
   shell: "/usr/sbin/semanage port -l | grep ^http_port_t | grep 5601"
