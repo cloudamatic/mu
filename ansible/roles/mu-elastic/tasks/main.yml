@@ -164,3 +164,18 @@
   service:
     name: kibana
     state: started
+
+- name: Check whether ElasticSearch S3 backup plugin is installed
+  shell: |
+    /usr/share/elasticsearch/bin/elasticsearch-plugin list | grep '^repository-s3$'
+  ignore_errors: true
+  register: s3_present
+  no_log: true
+  become: yes
+
+- name: Install ElasticSearch S3 backup plugin
+  shell: "/usr/share/elasticsearch/bin/elasticsearch-plugin install -b repository-s3"
+  become: yes
+  when: s3_present is failed
+  notify:
+  - Restart elasticsearch

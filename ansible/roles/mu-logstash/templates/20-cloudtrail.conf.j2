@@ -7,9 +7,9 @@ input {
     codec => cloudtrail {}
     ecs_compatibility => v1
     id => "cloudtrail{{ trail['tag'] }}"
-{%- if "role_arn" in trail %}
+{% if "role_arn" in trail %}
     role_arn => "{{ trail["role_arn"] }}"
-{%- endif %}
+{% endif %}
     tags => ["AWS", "cloudtrail", "{{ trail['tag'] }}"]
     type => "cloudtrail"
   }
