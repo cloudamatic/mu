@@ -419,10 +419,10 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         end
 
 #        MU::Cloud::AWS::Server.createIAMProfile(pool_name, base_profile: server['iam_role'], extra_policies: server['iam_policies'])
-        pool_obj = mommacat.findLitterMate(type: "server_pool", mu_name: pool_name)
-        pool_obj.groom
+        pool_obj = mommacat.findLitterMate(type: "server_pool", mu_name: pool_name, credentials: server['credentials'], debug: true)
+        pool_obj.groom if pool_obj
 
-        resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
+        resp = MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).describe_auto_scaling_groups(
             auto_scaling_group_names: [pool_name]
         )
 
@@ -431,7 +431,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
           next
         end
         resp.auto_scaling_groups.each { |asg|
-          launch = MU::Cloud::AWS.autoscale.describe_launch_configurations(
+          launch = MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).describe_launch_configurations(
             launch_configuration_names: [asg.launch_configuration_name]
           ).launch_configurations.first
 
@@ -455,7 +455,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
           )
 
           # Figure out which devices are embedded in the AMI already.
-          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
+          image = MU::Cloud::AWS.ec2(credentials: server['credentials'], region: server['region']).describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
 
           if image.nil?
             MU.log "#{server["basis"]["launch_config"]["ami_id"]} does not exist, skipping launch config #{asg.launch_configuration_name}", MU::ERR
@@ -501,7 +501,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
 
           # Put our Autoscale group onto a temporary launch config
           begin
-            MU::Cloud::AWS.autoscale.create_launch_configuration(
+            MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).create_launch_configuration(
               launch_configuration_name: pool_name+"-TMP",
               user_data: Base64.encode64(userdata),
               image_id: server["basis"]["launch_config"]["ami_id"],
@@ -523,16 +523,16 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
             next
           end
 
-          MU::Cloud::AWS.autoscale.update_auto_scaling_group(
+          MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).update_auto_scaling_group(
             auto_scaling_group_name: pool_name,
             launch_configuration_name: pool_name+"-TMP"
           )
 
           # ...now back to an identical one with the "real" name
-          MU::Cloud::AWS.autoscale.delete_launch_configuration(
+          MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).delete_launch_configuration(
               launch_configuration_name: pool_name
           )
-          MU::Cloud::AWS.autoscale.create_launch_configuration(
+          MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).create_launch_configuration(
               launch_configuration_name: pool_name,
               user_data: Base64.encode64(userdata),
               image_id: server["basis"]["launch_config"]["ami_id"],
@@ -545,11 +545,11 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               ebs_optimized: server["basis"]["launch_config"]["ebs_optimized"],
               associate_public_ip_address: launch.associate_public_ip_address
           )
-          MU::Cloud::AWS.autoscale.update_auto_scaling_group(
+          MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).update_auto_scaling_group(
             auto_scaling_group_name: pool_name,
             launch_configuration_name: pool_name
           )
-          MU::Cloud::AWS.autoscale.delete_launch_configuration(
+          MU::Cloud::AWS.autoscale(credentials: server['credentials'], region: server['region']).delete_launch_configuration(
             launch_configuration_name: pool_name+"-TMP"
           )
 
@@ -567,7 +567,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
       end
       id = server['cloud_id']
       id = server['instance_id'] if id.nil?
-      desc = MU::Cloud::AWS.ec2(region: server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
+      desc = MU::Cloud::AWS.ec2(credentials: server['conf']['credentials'], region: server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 
       server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
       next if nodes.size > 0 and !nodes.include?(nodename)
@@ -581,7 +581,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
         server_obj.groom
       end
-      olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(region: server['region']).describe_instance_attribute(
+      olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(credentials: server['conf']['credentials'], region: server['region']).describe_instance_attribute(
         instance_id: id,
         attribute: "userData"
       ).user_data.value)
@@ -618,7 +618,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
 
       MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
       begin
-        MU::Cloud::AWS.ec2(region: server['region']).modify_instance_attribute(
+        MU::Cloud::AWS.ec2(credentials: server['conf']['credentials'], region: server['region']).modify_instance_attribute(
           instance_id: id,
           attribute: "userData",
           value: Base64.encode64(userdata)

@@ -245,7 +245,7 @@ else
   end
 
   nagios_command "check_elastic" do
-    options 'command_line' => %Q{$USER1$/check_elastic -H $HOSTADDRESS$ -t status -S -u $ARG1$ -p $ARG2$}
+    options 'command_line' => %Q{$USER1$/check_elastic -H $HOSTADDRESS$ -t master -S -u $ARG1$ -p $ARG2$}
   end
 
   nagios_command "check_kibana" do
