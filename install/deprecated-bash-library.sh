@@ -1299,7 +1299,7 @@ install_chef()
     status_message "Installing current Chef client"
     yum -y erase chef || rpm -e chef # one of these will get it
     rm -rf /opt/chef # and stay out
-    curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
+    curl https://omnitruck.chef.io/install.sh > /root/chef-install.sh
     sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
   fi
   if [ -f /opt/chef/embedded/bin/gem ];then

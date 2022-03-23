@@ -23,7 +23,7 @@ include_recipe 'mu-master::firewall-holes'
 log "#{node['recipes']}"
 
 # Define this so it's present for solo runs of this recipe
-if !node['recipes'].include?("mu-master::default")
+if !node['recipes'].include?("mu-master::default") or node['update_nagios_only']
   service 'apache2' do
     extend Apache2::Cookbook::Helpers
     service_name lazy { apache_platform_service_name }

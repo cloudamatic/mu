@@ -105,7 +105,7 @@ umask 0077
 
 # Install Chef now, because why not?
 if [ ! -f /opt/chef/embedded/bin/ruby ];then
-	curl https://www.chef.io/chef/install.sh > chef-install.sh
+	curl https://omnitruck.chef.io/install.sh > chef-install.sh
 	set +e
 	# We may run afoul of a synchronous bootstrap process doing the same thing. So
 	# wait until we've managed to run successfully.
