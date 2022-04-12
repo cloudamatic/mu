@@ -87,3 +87,9 @@
     protocol: tcp
     jump: ACCEPT
   loop: "{{ mu_deployment['mu_all_ips'] }}"
+
+- name: Install Amazon SSM Agent
+  yum:
+    name: "https://s3.us-east-1.amazonaws.com/amazon-ssm-us-east-1/latest/linux_amd64/amazon-ssm-agent.rpm"
+    state: present
+  when: cloudprovider == "AWS"
