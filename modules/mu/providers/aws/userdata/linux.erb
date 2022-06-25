@@ -32,13 +32,17 @@ done
 
 if ping -c 5 8.8.8.8 > /dev/null; then
   if [ -f /etc/debian_version ];then
+    export DEBIAN_FRONTEND="noninteractive"
     if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
       echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
     fi
     apt-get update -y
     if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
     if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
-    AWSCLI=/usr/local/bin/aws
+    AWSCLI=/usr/bin/aws
+    if [ ! -x /usr/bin/aws ];then
+      apt-get -y install awscli
+    fi
 <% if !$mu.skipApplyUpdates %>
     set +e
     if [ ! -f /.mu-installer-ran-updates ];then

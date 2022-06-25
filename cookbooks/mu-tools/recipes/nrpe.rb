@@ -72,12 +72,14 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
         notifies :restart, "service[nrpe]", :delayed
       end
 
-      package "nagios-plugins-check-updates"
-      nrpe_check "check_updates" do
-        command "#{node['nrpe']['plugin_dir']}/check_updates --security-only"
-        action :add
-        notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
-        notifies :restart, "service[nrpe]", :delayed
+      if node['platform'] == "centos"
+        package "nagios-plugins-check-updates"
+        nrpe_check "check_updates" do
+          command "#{node['nrpe']['plugin_dir']}/check_updates --security-only"
+          action :add
+          notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
+          notifies :restart, "service[nrpe]", :delayed
+        end
       end
     when 6
       if node['platform'] != 'amazon'

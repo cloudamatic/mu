@@ -36,7 +36,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="14.11.31-1"
-CHEF_CLIENT_VERSION="17.4.38"
+CHEF_CLIENT_VERSION="17.10.3"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 
