@@ -71,3 +71,10 @@ if !node['application_attributes']['skip_recipes'].include?('rsyslog')
     end
   end
 end
+
+cookbook_file "/etc/logrotate.conf" do
+  source "logrotate.conf"
+  mode 0644
+  owner "root"
+  group "root"
+end

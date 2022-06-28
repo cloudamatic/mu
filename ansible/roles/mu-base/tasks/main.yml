@@ -15,6 +15,15 @@
   - nagios-plugins-disk
   - nagios-plugins-check-updates
 
+- name: /etc/logrotate.conf
+  copy:
+    src: logrotate.conf
+    dest: /etc/logrotate.conf
+    mode: 0644
+    owner: root
+    group: root
+  become: yes
+
 - name: /etc/nagios/nrpe.cfg
   template:
     src: nrpe.cfg.j2
