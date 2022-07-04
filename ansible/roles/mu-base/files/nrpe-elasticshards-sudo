@@ -1,0 +1,2 @@
+nrpe    ALL=(ALL)    NOPASSWD: /bin/tail -100 /var/log/elasticsearch/elasticsearch.log
+nrpe    ALL=(ALL)    NOPASSWD: /bin/grep shards /var/log/elasticsearch/elasticsearch.log 

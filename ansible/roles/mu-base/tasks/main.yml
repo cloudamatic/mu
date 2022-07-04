@@ -49,6 +49,7 @@
   - check_updates.cfg
   - check_logstash.cfg
   - check_apm.cfg
+  - check_elastic_shards.cfg
   notify:
   - Restart NRPE
 
@@ -61,11 +62,19 @@
   with_items:
   - check_logstash
   - check_apm
+  - check_elastic_shards
 
 - name: Add sudo line for nrpe -> apm-server
   copy:
     dest: /etc/sudoers.d/91-nrpe-apm
     src: "nrpe-apm-sudo"
+    mode: 0440
+  become: yes
+
+- name: Add sudo lines for nrpe -> elastic shard limit
+  copy:
+    dest: /etc/sudoers.d/92-nrpe-elasticshards
+    src: "nrpe-elasticshards-sudo"
     mode: 0440
   become: yes
 

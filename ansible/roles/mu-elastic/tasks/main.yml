@@ -179,3 +179,8 @@
   when: s3_present is failed
   notify:
   - Restart elasticsearch
+
+- name: "Force set a reasonable number of shards {{ mu_deployment['servers']['backend'] | json_query('[*].private_ip_address') }}"
+  shell: |
+    /bin/curl --user "elastic:{{ mu_vaults[mu_deploy_id]['elasticpw'] }}" -k -X PUT "https://{{ mu_deployment['servers']['backend'][inventory_hostname]['private_ip_address'] }}:9200/_cluster/settings" -H "Content-Type: application/json" -d '{ "persistent": { "cluster.max_shards_per_node": "10000" } }'
+  become: yes
