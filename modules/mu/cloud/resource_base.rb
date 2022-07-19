@@ -250,6 +250,7 @@ module MU
               @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
               if windows? or @config['active_directory'] and !@mu_windows_name
+                describe # make sure @deploydata is populated
                 if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
                   @mu_windows_name = @deploydata['mu_windows_name']
                 else

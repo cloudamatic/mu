@@ -350,7 +350,11 @@ module MU
           play["become"] = "yes"
         end
 
-        play["roles"] = ["mu-base"]
+        if @server.windows?
+          play["roles"] = ["mu-windows"]
+        else
+          play["roles"] = ["mu-base"]
+        end
         if @server.config['run_list']
           play["roles"].concat(@server.config['run_list'])
         end
@@ -362,6 +366,7 @@ module MU
         if @server.windows?
           play["vars"] ||= {}
           play["vars"]["ansible_connection"] = "winrm"
+          play["vars"]['ansible_python_interpreter'] = "c:/bin/python/python310/python.exe"
           play["vars"]["ansible_winrm_scheme"] = "https"
           play["vars"]["ansible_winrm_transport"] = "ntlm"
           play["vars"]["ansible_winrm_server_cert_validation"] = "ignore" # XXX this sucks; use Mu_CA.pem if we can get it to work
@@ -427,6 +432,7 @@ module MU
 
         if @server.windows?
           allvars['windows_admin_username'] = @config['windows_admin_username']
+          allvars['ansible_python_interpreter'] = "c:/bin/python/python310/python.exe"
         end
 
         if !@server.cloud.nil?
@@ -440,6 +446,9 @@ module MU
         }
 
         groupvars = allvars.dup
+        if @server.windows? and @server.mu_windows_name
+          groupvars['mu_windows_name'] = @server.mu_windows_name
+        end
         if @server.deploy.original_config.has_key?('parameters')
           groupvars["mu_parameters"] = @server.deploy.original_config['parameters']
         end
@@ -696,6 +705,14 @@ module MU
           File.symlink(MU.myRoot+"/ansible/roles/"+role, roledir+"/"+role)
         }
 
+        coldir = "#{Etc.getpwuid(Process.uid).dir}/.ansible/collections/ansible_collections"
+        ["ansible.windows", "community.general.gem"].each { |coll|
+          %x{#{@ansible_execs}/ansible-galaxy collection list -p "#{coldir}"}
+          if $? != 0
+            system(%Q{#{@ansible_execs}/ansible-galaxy}, "collection", "install", coll, "-p", coldir)
+          end
+        } 
+
         if @server.config['run_list']
           @server.config['run_list'].each { |role|
             found = false
@@ -721,6 +738,7 @@ module MU
             end
           }
         end
+
       end
 
       # Upload the certificate to a Chef Vault for this node

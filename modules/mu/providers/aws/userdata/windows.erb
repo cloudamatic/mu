@@ -11,8 +11,8 @@ $cygwin_dir = "$basedir/cygwin"
 $username = (whoami).Split('\')[1]
 $WebClient = New-Object System.Net.WebClient
 $awsmeta = "http://169.254.169.254/latest"
-$pydir = 'c:\bin\python\python27'
-$pyv = '2.7.14'
+$pydir = 'c:\bin\python\python310'
+$pyv = '3.10.5'
 $env:Path += ";$pydir\Scripts;$pydir"
 
 function log
@@ -91,12 +91,12 @@ If ([Environment]::OSVersion.Version.Major -lt 10) {
 <% end %>
 
 If (!(Test-Path "$pydir\python.exe")){
-  If (!(Test-Path $tmp\python-$pyv.msi)){
+  If (!(Test-Path $tmp\python-$pyv.exe)){
     log "Downloading Python installer"
-    $WebClient.DownloadFile("https://www.python.org/ftp/python/$pyv/python-$pyv.msi","$tmp/python-$pyv.msi")
+    $WebClient.DownloadFile("https://www.python.org/ftp/python/$pyv/python-$pyv-amd64.exe","$tmp/python-$pyv.exe")
   }
   log "Running Python installer"
-  (Start-Process -FilePath msiexec -ArgumentList "/i $tmp\python-$pyv.msi /qn ALLUSERS=1 TARGETDIR=$pydir" -Wait -Passthru).ExitCode
+  (Start-Process -FilePath "$tmp/python-$pyv.exe" -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 TargetDir=$pydir" -Wait -Passthru).ExitCode
 }
 
 If (!(Test-Path "$pydir\Scripts\aws.cmd")){
@@ -108,6 +108,8 @@ If (!(Test-Path "$pydir\Scripts\aws.cmd")){
   log "Running pip install awscli"
   pip install awscli
 }
+
+(Get-WmiObject -class "Win32_TSGeneralSetting" -Namespace root\cimv2\terminalservices -ComputerName $server -Filter "TerminalName='RDP-tcp'").SetUserAuthenticationRequired(0)
 
 function removeChef($location){
   $install_chef = $false
