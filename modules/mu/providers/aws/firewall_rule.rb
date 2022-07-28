@@ -859,6 +859,8 @@ puts "REVOKE_RULES #{sg}"
                     :ip_permissions => [rule]
                   }
                   MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).send("authorize_security_group_#{dir.to_s}".to_sym, params)
+                rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+                  MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}", MU::WARN, details: [cloud_desc, params]
                 rescue Aws::EC2::Errors::InvalidParameterValue => e
                   if e.message =~ /The same permission must not appear multiple times/
                     MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}", MU::WARN, details: [cloud_desc, params]
