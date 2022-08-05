@@ -588,12 +588,17 @@ module MU
             ip = nil
 
             records = []
-            lookup = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(
-              hosted_zone_id: mu_zone.id,
-              start_record_name: "#{dns_name}.platform-mu",
-              start_record_type: record_type,
-              max_items: 1
-            ).resource_record_sets
+            begin
+              lookup = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(
+                hosted_zone_id: mu_zone.id,
+                start_record_name: "#{dns_name}.platform-mu",
+                start_record_type: record_type,
+                max_items: 1
+              ).resource_record_sets
+            rescue Aws::Route53::Errors::InvalidInput => e
+              MU.log "Failed to look up record during #{delete ? "delete" : "add"}: "+e.message, MU::ERR, details: { "hosted_zone_id" => mu_zone.id, "start_record_name" => "#{dns_name}.platform-mu", "start_record_type" => record_type }
+              return nil
+            end
 
             lookup.each { |record|
               if record.name.match(/^#{dns_name}\.platform-mu/i) and record.type == record_type
