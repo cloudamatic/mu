@@ -1,5 +1,6 @@
 ---
   appname: mu
+  us_only: true
   vpcs:
   - name: windowsbuild
   servers: 
