@@ -471,7 +471,6 @@ MU.log ".update_security_group_rule_descriptions_ingress", MU::NOTICE, details: 
         end
 
         def self.revoke_rules(sg, egress: false, region: MU.myregion, credentials: nil)
-puts "REVOKE_RULES #{sg}"
           holes = sg.send(egress ? :ip_permissions_egress : :ip_permissions)
 
           to_revoke = []
