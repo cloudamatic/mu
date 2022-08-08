@@ -2,11 +2,11 @@
 appname: mu
 us_only: true
 servers: 
-- name: centos7
-  platform: centos7
+- name: rhel7
+  platform: rhel7
   size: m4.large
   vpc:
-    name: c7vpc
+    name: r7vpc
   scrub_groomer: true
   run_list:
   - recipe[mu-tools::apply_security]
@@ -18,4 +18,4 @@ servers:
     copy_to_regions:
     - "#ALL"
 vpcs:
-- name: c7vpc
+- name: r7vpc
