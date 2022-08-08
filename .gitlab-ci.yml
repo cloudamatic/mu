@@ -339,7 +339,7 @@ pages:
 Base Images Linux:
   stage: Deploy
   script:
-  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms centos6 centos7 rhel7
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms centos7 rhel7
   tags:
   - mu-gitlab-runner
   only:
