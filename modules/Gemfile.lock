@@ -10,12 +10,12 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.6.0)
+    cloud-mu (3.6.1)
       addressable (~> 2.5)
       aws-sdk (~> 3)
       aws-sdk-core (< 3.132)
       azure_sdk (~> 0.65)
-      bundler (~> 2.1.4)
+      bundler (~> 2.2)
       chronic_duration (~> 0.10)
       color (~> 1.8)
       colorize (~> 0.8)
@@ -1740,6 +1740,7 @@ GEM
       azure_service_fabric (~> 0.18.1)
     azure_service_fabric (0.18.1)
       ms_rest_azure (~> 0.12.0)
+    bcrypt_pbkdf (1.1.0)
     berkshelf (7.2.2)
       chef (>= 15.7.32)
       chef-config
@@ -1888,6 +1889,7 @@ GEM
       builder (>= 2.1.2)
       rexml (~> 3.0)
     hashie (4.1.0)
+    highline (2.0.3)
     http-cookie (1.0.5)
       domain_name (~> 0.5)
     httpclient (2.8.3)
@@ -1923,6 +1925,28 @@ GEM
     json-schema (2.8.1)
       addressable (>= 2.4)
     jwt (2.4.1)
+    knife (17.10.0)
+      bcrypt_pbkdf (~> 1.1)
+      chef (>= 17)
+      chef-config (>= 17)
+      chef-utils (>= 17)
+      chef-vault
+      erubis (~> 2.7)
+      ffi (>= 1.15)
+      ffi-yajl (~> 2.2)
+      highline (>= 1.6.9, < 3)
+      license-acceptance (>= 1.0.5, < 3)
+      mixlib-archive (>= 0.4, < 2.0)
+      mixlib-cli (>= 2.1.1, < 3.0)
+      net-ssh (>= 5.1, < 7)
+      net-ssh-multi (~> 1.2, >= 1.2.1)
+      ohai (~> 17.0)
+      pastel
+      train-core (~> 3.2, >= 3.2.28)
+      train-winrm (>= 0.2.5)
+      tty-prompt (~> 0.21)
+      tty-screen (~> 0.6)
+      tty-table (~> 0.11)
     libyajl2 (2.1.0)
     license-acceptance (2.1.13)
       pastel (~> 0.7)
@@ -1936,7 +1960,6 @@ GEM
     memoist (0.16.2)
     method_source (1.0.0)
     mini_mime (1.1.2)
-    mini_portile2 (2.8.0)
     minitar (0.9)
     minitest (5.16.2)
     mixlib-archive (1.1.7)
@@ -1973,8 +1996,7 @@ GEM
       net-ssh (>= 2.6.5)
       net-ssh-gateway (>= 1.2.0)
     netaddr (2.0.6)
-    nokogiri (1.13.8)
-      mini_portile2 (~> 2.8.0)
+    nokogiri (1.13.8-x86_64-linux)
       racc (~> 1.4)
     nori (2.6.0)
     numerizer (0.1.1)
@@ -2152,7 +2174,7 @@ GEM
       webrick (~> 1.7.0)
 
 PLATFORMS
-  ruby
+  x86_64-linux
 
 DEPENDENCIES
   berkshelf (~> 7.0)
@@ -2162,9 +2184,10 @@ DEPENDENCIES
   cloud-mu!
   ffi-libarchive
   foodcritic (~> 14.1.0)
+  knife (~> 17.10)
   knife-windows!
   mysql2 (<= 0.5.2)
   ruby-wmi
 
 BUNDLED WITH
-   2.1.4
+   2.2.33

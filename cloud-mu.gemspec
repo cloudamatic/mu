@@ -17,7 +17,7 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.6.0'
+  s.version     = '3.6.1'
   s.date        = '2022-08-08'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
@@ -41,7 +41,7 @@ EOF
   s.add_runtime_dependency "aws-sdk-core", "< 3.132" # need to pin this so Chef doesn't twist itself in knots
   s.add_runtime_dependency "aws-sdk", "~> 3"
   s.add_runtime_dependency 'azure_sdk', '~> 0.65'
-  s.add_runtime_dependency 'bundler', "~> 2.1.4"
+  s.add_runtime_dependency 'bundler', "~> 2.2"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'colorize', "~> 0.8"
