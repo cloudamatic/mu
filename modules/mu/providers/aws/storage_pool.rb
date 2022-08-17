@@ -31,7 +31,8 @@ module MU
           MU.log "Creating storage pool #{@mu_name}"
           resp = MU::Cloud::AWS.efs(region: @region, credentials: @credentials).create_file_system(
             creation_token: @mu_name,
-            performance_mode: @config['storage_type']
+            performance_mode: @config['storage_type'],
+            encrypted: @config['encrypt']
           )
 
           attempts = 0
@@ -438,6 +439,11 @@ module MU
         def self.schema(_config)
           toplevel_required = []
           schema = {
+            "encrypt" => {
+              "type" => "boolean",
+              "description" => "Encrypt EFS data at rest",
+              "default" => true
+            },
             "ingress_rules" => {
               "type" => "array",
               "description" => "Firewall rules to apply to our mountpoints",
