@@ -591,7 +591,7 @@ module MU
               "monitoring" => {
                   "type" => "boolean",
                   "default" => true,
-                  "description" => "Enable detailed instance monitoring.",
+                  "description" => "Enable detailed cloud provider instance monitoring.",
               },
               "private_ip" => {
                 "type" => "string",

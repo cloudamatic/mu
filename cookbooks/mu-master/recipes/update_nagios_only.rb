@@ -149,6 +149,7 @@ else
     if basket["servers"]
       basket["servers"].each { |server|
         next if server["groomer"] == "Chef"
+        next if server.has_key?("monitor") and !server["monitor"]
         non_chef[deploy_id] ||= []
         non_chef[deploy_id] << server
       }
@@ -156,6 +157,7 @@ else
     if basket["server_pools"]
       basket["server_pools"].each { |pool|
         next if pool["groomer"] == "Chef"
+        next if pool.has_key?("monitor") and !pool["monitor"]
         non_chef[deploy_id] ||= []
         non_chef[deploy_id] << pool
       }
