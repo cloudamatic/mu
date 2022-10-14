@@ -150,6 +150,7 @@ module MU
           @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
           if @config.has_key?("parameter_group_family")
             @config["parameter_group_name"] ||= @mu_name
+            @config["parameter_group_name"].downcase!
           end
 
           if args[:from_cloud_desc] and args[:from_cloud_desc].is_a?(Aws::RDS::Types::DBCluster)
@@ -510,7 +511,6 @@ dependencies
 
           if create
             MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
-
             MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
           end
 
