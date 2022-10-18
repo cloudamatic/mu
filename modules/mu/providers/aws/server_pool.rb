@@ -1207,12 +1207,13 @@ module MU
             end
 
             # Put our Autoscale group onto a temporary launch config
+            try_ami = oldlaunch.image_id
             begin
 
               MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(
                 launch_configuration_name: @mu_name+"-TMP",
                 user_data: Base64.encode64(olduserdata),
-                image_id: oldlaunch.image_id,
+                image_id: try_ami,
                 key_name: oldlaunch.key_name,
                 security_groups: oldlaunch.security_groups,
                 instance_type: oldlaunch.instance_type,
@@ -1225,8 +1226,11 @@ module MU
             rescue ::Aws::AutoScaling::Errors::ValidationError => e
               if e.message.match(/Member must have length less than or equal to (\d+)/)
                 MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+              elsif e.message.match(/AMI cannot be described/) and try_ami == oldlaunch.image_id and try_ami != @config['basis']['launch_config']["ami_id"]
+                try_ami = @config['basis']['launch_config']["ami_id"]
+                retry
               else
-                MU.log "Error updating #{@mu_name} Launch Config", MU::ERR, details: e.message
+                MU.log "Error saving copy of old #{@mu_name} Launch Config: #{e.message}", MU::ERR
               end
               raise e.message
             end

@@ -148,6 +148,8 @@ module MU
             end
 
           @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+          @cloud_id ||= @mu_name # XXX ??? MMMFFF
+
           if @config.has_key?("parameter_group_family")
             @config["parameter_group_name"] ||= @mu_name
             @config["parameter_group_name"].downcase!
@@ -511,7 +513,11 @@ dependencies
 
           if create
             MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
-            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
+            begin
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
+            rescue Aws::RDS::Errors::DBParameterGroupAlreadyExists => e
+              MU.log e.message, MU::WARN
+            end
           end
 
 

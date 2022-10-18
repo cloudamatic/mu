@@ -174,6 +174,7 @@ module MU
       @secrets['instance_secret'] = Hash.new
       @secrets['windows_admin_password'] = Hash.new
       @ssh_key_name = ssh_key_name
+      @ssh_key_name ||= "deploy-#{@deploy_id}"
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
       @clouds = {}
