@@ -154,7 +154,11 @@ if do_nodes.size > 0
 else
   do_nodes = avail_nodes
 end
-do_nodes.uniq!.sort!
+
+if do_nodes
+  do_nodes.uniq!
+  do_nodes.sort!
+end
 
 #do_nodes.sort!{ |x,y| (x[$opts[:info]] <=> y[$opts[:info]]) }
 
