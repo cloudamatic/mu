@@ -556,7 +556,7 @@ dependencies
         def groom
           cloud_desc(use_cache: false)
           manageSubnetGroup if @vpc
-          manageDbParameterGroup(@config["create_cluster"], create: false)
+          manageDbParameterGroup(@config["create_cluster"])
 
           noun = @config['create_cluster'] ? "cluster" : "instance"
 

@@ -852,14 +852,39 @@ MU.log ".update_security_group_rule_descriptions_ingress", MU::NOTICE, details: 
                   rescue Aws::EC2::Errors::InvalidPermissionNotFound
                   end
                 end
+                remove_me = nil
+                removals = 0
                 begin
+                  if remove_me
+                    removals += 1
+                    MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).send("revoke_security_group_#{dir.to_s}".to_sym, remove_me)
+                  end
                   params = {
                     :group_id => @cloud_id,
                     :ip_permissions => [rule]
                   }
                   MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).send("authorize_security_group_#{dir.to_s}".to_sym, params)
                 rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-                  MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}", MU::WARN, details: [cloud_desc, params]
+
+                  if e.message =~ /"peer: (\d+\.\d+\.\d+\.\d+\/\d+), (TCP|UDP|ICMP|), from port: (\d+), to port: (\d+), ALLOW"/ and removals < 50
+                    MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}, will attempt to remove", MU::NOTICE
+                    remove_me = {
+                      :group_id => @cloud_id,
+                      :ip_permissions => [
+                        {
+                          :from_port => Regexp.last_match[3].to_i,
+                          :to_port => Regexp.last_match[3].to_i,
+                          :ip_protocol => Regexp.last_match[2].downcase,
+                          :ip_ranges => [
+                            :cidr_ip => Regexp.last_match[1]
+                          ]
+                        }
+                      ]
+                    }
+                    retry
+                  else
+                    MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}", MU::WARN, details: [cloud_desc, params]
+                  end
                 rescue Aws::EC2::Errors::InvalidParameterValue => e
                   if e.message =~ /The same permission must not appear multiple times/
                     MU.log "FirewallRule #{@mu_name} attempted to add a duplicate rule: #{e.message}", MU::WARN, details: [cloud_desc, params]
