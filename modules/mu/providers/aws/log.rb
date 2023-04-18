@@ -22,7 +22,6 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
-MU.log "LOG.INITIALIZE", MU::ERR, details: args
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
