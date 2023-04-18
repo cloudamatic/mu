@@ -22,6 +22,7 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+MU.log "LOG.INITIALIZE", MU::ERR, details: args
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -244,7 +245,8 @@ module MU
         def self.find(**args)
           found = {}
           if !args[:cloud_id].nil? and !args[:cloud_id].match(/^arn:/i)
-            found[args[:cloud_id]] = MU::Cloud::AWS::Log.getLogGroupByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+            exists = MU::Cloud::AWS::Log.getLogGroupByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+            found[args[:cloud_id]] = exists if exists
           else
             next_token = nil
             begin
