@@ -161,7 +161,7 @@ module MU
         dir = nil
         try = [secret_dir+"/"+vault]
         try << deploy_dir+"/ansible/vaults/"+vault if deploy_dir
-        try << MU.mommacat.deploy_dir+"/ansible/vaults/"+vault if MU.mommacat.deploy_dir
+        try << MU.mommacat.deploy_dir+"/ansible/vaults/"+vault if MU.mommacat and MU.mommacat.deploy_dir
         try.each { |maybe_dir|
           if Dir.exist?(maybe_dir) and (item.nil? or File.exist?(maybe_dir+"/"+item))
             dir = maybe_dir

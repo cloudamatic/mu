@@ -684,7 +684,6 @@ MESSAGE_END
               if !@updating or mode != "create"
                 myservice = run_this_method.call
               else
-
                 # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
                 opts = {}
                 if myservice["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
@@ -705,7 +704,15 @@ MESSAGE_END
                                   )
 
                 found = found.delete_if { |x|
-                  x.cloud_id.nil? and x.cloudobj.cloud_id.nil?
+                  failed = (x.cloud_id.nil? and x.cloudobj.cloud_id.nil?)
+                  if !failed
+                    begin
+                      failed = true if !x.cloud_desc
+                    rescue StandardError
+                      failed = true
+                    end
+                  end
+                  failed
                 }
 
                 if found.size == 0

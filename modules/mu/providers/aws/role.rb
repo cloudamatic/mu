@@ -77,6 +77,9 @@ module MU
           end
 
           if !@config['bare_policies']
+puts "*********************"
+puts @credentials
+puts "*********************"
             resp = MU::Cloud::AWS.iam(credentials: @credentials).get_role(
               role_name: @mu_name
             ).role
@@ -539,7 +542,6 @@ end
           found = {}
 
           if args[:cloud_id]
-
             begin
               # managed policies get fetched by ARN, roles by plain name. Ok!
               if args[:cloud_id].match(/^arn:.*?:policy\//)
@@ -560,7 +562,6 @@ end
               end
             rescue ::Aws::IAM::Errors::NoSuchEntity
             end
-
           else
             resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_roles
             resp.roles.each { |role|
@@ -1118,7 +1119,7 @@ end
           if role['policies']
             role['policies'].each { |policy|
               policy['targets'].each { |target|
-                if target['type']
+                if target['type'] and _configurator.haveLitterMate?(target['identifier'], target['type'])
                   MU::Config.addDependency(role, target['identifier'], target['type'], my_phase: "groom")
                 end
               }
@@ -1135,7 +1136,7 @@ end
         # @param policies [Array<Hash>]: One or more policy chunks
         # @param deploy_obj [MU::MommaCat]: Deployment object to use when looking up sibling Mu resources
         # @return [Array<Hash>]
-        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false, version: "2012-10-17", doc_id: nil)
+        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false, version: "2012-10-17", doc_id: nil, credentials: nil)
           if policies
             name = nil
             doc = {
@@ -1211,7 +1212,19 @@ end
                       type: target["type"]
                     )
                     if sibling
-                      id = sibling.cloudobj.arn
+                      sibling = sibling.cloudobj
+                    else
+                      found = MU::MommaCat.findStray(
+                        "AWS",
+                        target["type"],
+                        cloud_id: target["identifier"],
+                        credentials: credentials,
+                        dummy_ok: true
+                      )
+                      sibling = found.first
+                    end
+                    if sibling
+                      id = sibling.arn
                       id.sub!(/:([^:]+)$/, ":"+'\1'+target["path"]) if target["path"]
                       statement["Resource"] << id
                       if id.match(/:log-group:/)
@@ -1269,7 +1282,7 @@ end
         # Convert entries from the cloud-neutral @config['policies'] list into
         # AWS syntax.
         def convert_policies_to_iam
-          MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
+          MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy, credentials: @credentials)
         end
 
         def get_tag_params(strip_std = false)

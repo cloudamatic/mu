@@ -620,7 +620,7 @@ dependencies
             mods[:apply_immediately] = true
             mods[:allow_major_version_upgrade] = true
             wait_until_available
-            MU.retrier([Aws::RDS::Errors::InvalidParameterValue], wait: 60, max: 15) {
+            MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue], wait: 60, max: 15) {
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("modify_db_#{noun}".to_sym, mods)
             }
             wait_until_available

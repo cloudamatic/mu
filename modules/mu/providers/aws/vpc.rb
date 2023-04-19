@@ -114,20 +114,6 @@ module MU
             raise MuError, "VPC endpoint failed #{endpoint_id}: #{resp}" if resp.state == "failed"
           end
 
-          if @config["enable_traffic_logging"]
-            loggroup = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs")
-            logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
-
-            MU.log "Enabling traffic logging on VPC #{@mu_name} to log group #{loggroup.mu_name}"
-            MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_flow_logs(
-              resource_ids: [@cloud_id],
-              resource_type: "VPC",
-              traffic_type: "ALL",
-              log_group_name: loggroup.mu_name,
-              deliver_logs_permission_arn: logrole.cloudobj.arn
-            )
-          end
-
           nat_gateways = create_subnets
 
           notify
@@ -231,6 +217,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+puts "GROOM CALLED ON #{@mu_name}".bold
           vpc_name = @deploy.getResourceName(@config['name'])
 
           # Generate peering connections
@@ -268,6 +255,41 @@ module MU
               }
 
             }
+          end
+
+          if @config["enable_traffic_logging"]
+puts "GODDAMN FLOW LOGS SECTION ON #{@mu_name}".bold
+            ext = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_flow_logs(
+               filter: [
+                 { name: "resource-id", values: [@cloud_id] }
+               ]
+            )
+pp ext
+            # XXX a smarter guard would filter with more specificity
+            if !ext or ext.flow_logs.empty?
+              loggroup = if @config['log_group_name']
+                @config['log_group_name']
+              else
+                @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs").mu_name
+              end
+              logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
+
+
+              MU.log "Enabling traffic logging on VPC #{@mu_name} to log group #{loggroup}"
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_flow_logs(
+                resource_ids: [@cloud_id],
+                resource_type: "VPC",
+                traffic_type: "ALL",
+                log_group_name: loggroup,
+                deliver_logs_permission_arn: logrole.cloudobj.arn,
+                tag_specifications: [
+                  {
+                    resource_type: "vpc-flow-log",
+                    tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+                  }
+                ]
+              )
+            end
           end
 
         end
@@ -942,13 +964,15 @@ module MU
           ok = true
 
           if vpc["enable_traffic_logging"]
-            logdesc = {
-              "name" => vpc['name']+"loggroup",
-            }
-            logdesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
-#            logdesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
-            configurator.insertKitten(logdesc, "logs")
-            MU::Config.addDependency(vpc, vpc['name']+"loggroup", "log")
+            if !vpc['log_group_name']
+              logdesc = {
+                "name" => vpc['name']+"loggroup",
+              }
+              logdesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
+#              logdesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
+              configurator.insertKitten(logdesc, "logs")
+              MU::Config.addDependency(vpc, vpc['name']+"loggroup", "log")
+            end
 
             roledesc = {
               "name" => vpc['name']+"logrole",
@@ -971,20 +995,23 @@ module MU
                   "targets" => [
                     {
                       "type" => "log",
-                      "identifier" => vpc['name']+"loggroup"
+                      "identifier" => vpc['log_group_name'] ? vpc['log_group_name'] : vpc['name']+"loggroup"
                     }
                   ]
                 }
-              ],
-              "dependencies" => [
+              ]
+            }
+            if !vpc['log_group_name']
+              roledesc["dependencies"] = [
                 {
                   "type" => "log",
                   "name" => vpc['name']+"loggroup"
                 }
               ]
-            }
+            end
             roledesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
             roledesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
+
             configurator.insertKitten(roledesc, "roles")
             MU::Config.addDependency(vpc, vpc['name']+"logrole", "role")
           end
