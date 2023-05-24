@@ -187,6 +187,14 @@ puts "*********************"
                 desc
               end
 
+            rescue Aws::IAM::Errors::AccessDenied => e
+              if e.message =~ /Cannot create versions for policies outside your own account/
+                MU.log "Deleting and recreating cross-account policy #{policy_name}", MU::NOTICE
+                purgePolicy(arn, credentials)
+                retry
+              else
+                raise e
+              end
             rescue Aws::IAM::Errors::NoSuchEntity
               MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
               desc = MU::Cloud::AWS.iam(credentials: credentials).create_policy(

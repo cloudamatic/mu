@@ -590,7 +590,6 @@ module MU
           searches << {
             filters: [
               base_filter,
-              {name: ip_type, values: [ip]},
               {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]},
             ]
           }

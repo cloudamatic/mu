@@ -23,6 +23,11 @@ firewall_rule "MU Master default ports" do
   port [MU.mommaCatPort, 7443, 8443, 9443, 10514, 443, 80, 25]
 end
 
+firewall_rule "Logstash port" do
+  port [5044]
+  source "10.0.0.0/8"
+end
+
 local_chef_ports = [4321, 9463, 9583, 16379, 8983, 8000, 9680, 9683, 9090, 5432]
 firewall_rule "Chef Server ports on 127.0.0.1" do
   port local_chef_ports

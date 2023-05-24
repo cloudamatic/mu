@@ -258,13 +258,11 @@ puts "GROOM CALLED ON #{@mu_name}".bold
           end
 
           if @config["enable_traffic_logging"]
-puts "GODDAMN FLOW LOGS SECTION ON #{@mu_name}".bold
             ext = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_flow_logs(
                filter: [
                  { name: "resource-id", values: [@cloud_id] }
                ]
             )
-pp ext
             # XXX a smarter guard would filter with more specificity
             if !ext or ext.flow_logs.empty?
               loggroup = if @config['log_group_name']
