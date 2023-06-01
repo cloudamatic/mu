@@ -99,7 +99,7 @@ module MU
         }
       end
 
-      @@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+      @@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/usr/local/ruby-current/bin:/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
       # @return [String]
       def self.knife
