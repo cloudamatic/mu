@@ -22,6 +22,8 @@
 # references to other cookbooks, no include_recipes, no cookbook_files, no
 # templates.
 
+chef_gem "aws-sigv4"
+
 require 'etc'
 require 'open-uri'
 require 'socket'

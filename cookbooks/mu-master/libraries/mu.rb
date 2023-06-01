@@ -26,6 +26,8 @@ elsif File.readable?("/opt/mu/lib/modules/mu-load-config.rb")
   require "/opt/mu/lib/modules/mu-load-config.rb"
 end
 
+# for some reason aaws-sigv4 isn't getting picked up by Mu's requires
+require "aws-sigv4"
 require "mu"
 
 def baskets
