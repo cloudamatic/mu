@@ -77,9 +77,6 @@ module MU
           end
 
           if !@config['bare_policies']
-puts "*********************"
-puts @credentials
-puts "*********************"
             resp = MU::Cloud::AWS.iam(credentials: @credentials).get_role(
               role_name: @mu_name
             ).role

@@ -217,7 +217,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-puts "GROOM CALLED ON #{@mu_name}".bold
           vpc_name = @deploy.getResourceName(@config['name'])
 
           # Generate peering connections
