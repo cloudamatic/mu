@@ -581,6 +581,50 @@ dependencies
             mods[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           end
 
+          # If we've declared special option group options, ensure that we have
+          # an option group of the same name as our database instance with the
+          # correct settings.
+          if @config['option_group_options'] and !@config['option_group_options'].empty?
+            og = begin
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_option_groups(
+                option_group_name: @mu_name
+              ).option_groups_list.first
+            rescue Aws::RDS::Errors::OptionGroupNotFoundFault
+              MU.log "Creating Option Group #{@mu_name} for #{@config['engine']} #{@config['major_version']} database #{@mu_name}"
+
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).create_option_group(
+                engine_name: @config['engine'],
+                major_engine_version: @config['major_version'],
+                option_group_name: @mu_name,
+                option_group_description: @deploy_id
+              ).option_group
+            end
+            need = []
+            ext_options = og.options.map { |o| o.option_name }
+            @config['option_group_options'].each { |opt|
+              if !ext_options.include?(opt)
+                need << { option_name: opt }
+              end
+            }
+
+            if !need.empty?
+              MU.log "Modifying Option Group #{@mu_name}", MU::NOTICE, need
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_option_group(
+                option_group_name: @mu_name,
+                apply_immediately: true,
+                options_to_include: need
+              )
+            end
+
+            if cloud_desc.option_group_memberships.first.option_group_name != @mu_name
+              mods[:option_group_name] = @mu_name
+            end
+
+          # Otherwise if we've declared a non-default option group, ensure that
+          # we're using it.
+          elsif @config['option_group'] and cloud_desc.option_group_memberships.first.option_group_name != @config['option_group']
+            mods[:option_group_name] = @config['option_group']
+          end
 
           if @config['cloudwatch_logs'] and cloud_desc.enabled_cloudwatch_logs_exports.sort != @config['cloudwatch_logs'].sort
             mods[:cloudwatch_logs_export_configuration] = {
@@ -870,7 +914,6 @@ dependencies
             }
           }
 
-
           schema = {
             "db_parameter_group_parameters" => rds_parameters_primitive,
             "cluster_parameter_group_parameters" => rds_parameters_primitive,
@@ -889,8 +932,21 @@ dependencies
               "type" => "string",
               "default" => "gp2"
             },
+            "option_group" => {
+              "description" => "The name of a non-default RDS option group to use with this instance/cluster (this will be ignored if +option_group_options+ is declared).",
+              "type" => "string"
+            },
+            "option_group_options" => {
+              "description" => "One or more option group options to enable, with default settings. If specified, +option_group+ will be overridden.",
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Option group identifiers supported by the relevant database engine, such as +MARIADB_AUDIT_PLUGIN+ for MariaDB/MySQL. See https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithOptionGroups.html for current options."
+              }
+            },
             "cloudwatch_logs" => {
               "type" => "array",
+              "description" => "Enable output of logs to CloudWatch",
               "items" => {
                 "type" => "string",
                 "enum" => ["audit", "error", "general", "slowquery", "profiler", "postgresql", "alert", "listener", "trace", "upgrade", "agent"]
@@ -958,10 +1014,13 @@ dependencies
                 "versions" => [],
                 "families" => [],
                 "features" => {},
+                "options" => {},
                 "raw" => {}
               }
               engines[version.engine]['versions'] << version.engine_version
               engines[version.engine]['families'] << version.db_parameter_group_family
+              engines[version.engine]['options'][version.major_engine_version] ||= MU::Cloud::AWS.rds().describe_option_group_options(engine_name: version.engine, major_engine_version: version.major_engine_version).option_group_options.map { |o| o.name }
+
               engines[version.engine]['raw'][version.engine_version] = version
               [:supports_read_replica, :supports_log_exports_to_cloudwatch_logs].each { |feature|
                 if version.respond_to?(feature) and version.send(feature) == true
@@ -984,7 +1043,7 @@ dependencies
           @@engine_cache[credentials][region] = engines
           return engine ? @@engine_cache[credentials][region][engine] : @@engine_cache[credentials][region]
         end
-        private_class_method :get_supported_engines
+#        private_class_method :get_supported_engines
 
         # Make sure any source database/cluster/snapshot we've asked for exists
         # and is valid.
@@ -1047,6 +1106,28 @@ dependencies
         end
         private_class_method :validate_master_password
 
+        def self.valid_option_group_options?(db)
+          return true if !db['option_group_options'] or db['option_group_options'].empty?
+
+          engine = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
+          if engine.nil? or !engine['options'] or !engine['raw'][db['engine_version']]
+            return true # we can't be sure, so let the API sort it out later
+          end
+          major_version = engine['raw'][db['engine_version']].major_engine_version
+          return true if !engine['options'][major_version]
+
+          ok = true
+          db['option_group_options'].each { |opt|
+            if !engine['options'][major_version].include?(opt)
+              MU.log "#{opt} not a valid Option Group entry for #{db['engine']} #{major_version}", MU::ERR, details: engine['options'][major_version]
+              ok = false
+            end
+          }
+
+          ok
+        end
+        private_class_method :valid_option_group_options?
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
         # @param db [Hash]: The resource to process and validate
         # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a ember
@@ -1061,6 +1142,17 @@ dependencies
           ok = false if !valid_read_replica?(db)
 
           ok = false if !valid_cloudwatch_logs?(db)
+
+          ok = false if !valid_option_group_options?(db)
+
+          engine = self.get_supported_engines(
+            db['region'],
+            db['credentials'],
+            engine: db['engine']
+          )
+          if engine and engine['raw'] and engine['raw'][db['engine_version']]
+            db['major_version'] = engine['raw'][db['engine_version']].major_engine_version
+          end
 
           db["license_model"] ||=
             if ["postgres", "postgresql", "aurora-postgresql"].include?(db["engine"])
