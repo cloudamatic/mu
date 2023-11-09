@@ -452,7 +452,9 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               "publicIP" => MU.mu_public_ip,
               "resourceName" => svr_class,
               "windowsAdminName" => server['windows_admin_username'],
+              "adminBucketName" => MU::Cloud::AWS.adminBucketName(server['credentials']),
               "skipApplyUpdates" => server['skipinitialupdates'],
+              "chefVersion" => MU.chefVersion,
               "resourceType" => "server_pool"
             },
             custom_append: server['userdata_script']
@@ -598,9 +600,12 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               "muID" => muid,
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
+              "mommaCatPort" => MU.mommaCatPort,
               "resourceName" => server['conf']['name'],
               "windowsAdminName" => server['conf']['windows_admin_username'],
+              "adminBucketName" => MU::Cloud::AWS.adminBucketName(server['conf']['credentials']),
               "skipApplyUpdates" => server['conf']['skipinitialupdates'],
+              "chefVersion" => MU.chefVersion,
               "resourceType" => mytype
           },
           custom_append: server['userdata_script']
