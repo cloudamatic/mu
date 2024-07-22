@@ -826,6 +826,15 @@ module MU
             },
             "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema
           }
+          # Derpy hack: Make launch_template a valid basis key, largely the 
+          # same schema as launch_config, just to cue us on which thing to
+          # build.
+          schema["basis"] = {
+            "properties" => {
+              "launch_template" => MU::Config::ServerPool.schema["properties"]["basis"]["properties"]["launch_config"].dup
+            }
+          }
+
           [toplevel_required, schema]
         end
 
@@ -893,8 +902,14 @@ module MU
             end
           }
 
-          if !pool["basis"]["launch_config"].nil?
-            launch = pool["basis"]["launch_config"]
+          if pool["basis"]["launch_config"] or pool["basis"]["launch_template"]
+            launch = if pool["basis"]["launch_config"]
+              MU.log "Launch Configurations are being sunsetted by AWS. You should switch to Launch Templates.", MU::WARN
+              sleep 10
+              pool["basis"]["launch_config"]
+            else
+              pool["basis"]["launch_template"]
+            end
             launch['iam_policies'] ||= pool['iam_policies']
 
             launch['size'] = MU::Cloud.resourceClass("AWS", "Server").validateInstanceType(launch["size"], pool["region"])
@@ -915,11 +930,10 @@ module MU
             }
             MU::Cloud.resourceClass("AWS", "Server").generateStandardRole(pool, configurator)
 
-            launch["ami_id"] ||= launch["image_id"]
-            if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
+            if launch["server"].nil? and launch["instance_id"].nil? and launch["image_id"].nil?
               img_id = MU::Cloud.getStockImage("AWS", platform: pool['platform'], region: pool['region'])
               if img_id
-                launch['ami_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: img_id, prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+                launch['image_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: img_id, prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
   
               else
                 ok = false
@@ -1094,7 +1108,7 @@ module MU
                 launch_configuration_name: resource_id
               )
             rescue Aws::AutoScaling::Errors::ValidationError => e
-              MU.log "No such Launch Configuration #{resource_id}"
+              MU.log "No such Launch Configuration #{resource_id}", MU::DEBUG
             rescue Aws::AutoScaling::Errors::InternalFailure => e
               if retries < 5
                 MU.log "Got #{e.inspect} while removing Launch Configuration #{resource_id}.", MU::WARN
@@ -1104,6 +1118,14 @@ module MU
                 MU.log "Failed to delete Launch Configuration #{resource_id}", MU::ERR
               end
             end
+
+            retries = 0
+            begin
+              MU.log "Removing Launch Template #{resource_id}"
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).delete_launch_template(launch_template_name: resource_id)
+            rescue Aws::EC2::Errors::InvalidLaunchTemplateNameNotFoundException => e
+              MU.log "No such Launch Template #{resource_id}", MU::DEBUG
+            end
           }
           return nil
         end
@@ -1111,31 +1133,60 @@ module MU
         private
 
         def createUpdateLaunchConfig
-          return if !@config['basis'] or !@config['basis']["launch_config"]
+          return if !@config['basis'] or !(@config['basis']["launch_config"] or @config['basis']["launch_template"])
 
           instance_secret = Password.random(50)
           @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
+          
+          launch_chunk = if @config['basis']['launch_config']
+            @config['basis']['launch_config']
+          else
+            @config['basis']['launch_template']
+          end
 
-          if !@config['basis']['launch_config']["server"].nil?
+          if !launch_chunk['image_id'] and !launch_chunk['ami_id']
+            pp launch_chunk
+            raise "missing image_id from launch somehow"
+          end
+
+          launch_chunk['image_id'] ||= launch_chunk['ami_id']
+
+          if !launch_chunk["server"].nil?
             #XXX this isn't how we find these; use findStray or something
-            if @deploy.deployment["images"].nil? or @deploy.deployment["images"][@config['basis']['launch_config']["server"]].nil?
-              raise MuError, "#{@mu_name} needs an AMI from server #{@config['basis']['launch_config']["server"]}, but I don't see one anywhere"
+            if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_chunk["server"]].nil?
+              raise MuError, "#{@mu_name} needs an AMI from server #{launch_chunk["server"]}, but I don't see one anywhere"
             end
-            @config['basis']['launch_config']["ami_id"] = @deploy.deployment["images"][@config['basis']['launch_config']["server"]]["image_id"]
-            MU.log "Using AMI '#{@config['basis']['launch_config']["ami_id"]}' from sibling server #{@config['basis']['launch_config']["server"]} in ServerPool #{@mu_name}"
-          elsif !@config['basis']['launch_config']["instance_id"].nil?
-            @config['basis']['launch_config']["ami_id"] = MU::Cloud.resourceClass("AWS", "Server").createImage(
+            launch_chunk["image_id"] = @deploy.deployment["images"][launch_chunk["server"]]["image_id"]
+            MU.log "Using AMI '#{launch_chunk["image_id"]}' from sibling server #{launch_chunk["server"]} in ServerPool #{@mu_name}"
+          elsif !launch_chunk["instance_id"].nil?
+            launch_chunk["image_id"] = MU::Cloud.resourceClass("AWS", "Server").createImage(
               name: @mu_name,
-              instance_id: @config['basis']['launch_config']["instance_id"],
+              instance_id: launch_chunk["instance_id"],
               credentials: @credentials,
               region: @region
             )[@region]
           end
-          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"].to_s, credentials: @credentials)
 
-          oldlaunch = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_launch_configurations(
-            launch_configuration_names: [@mu_name]
-          ).launch_configurations.first
+          if launch_chunk["image_id"]
+            MU::Cloud.resourceClass("AWS", "Server").waitForAMI(launch_chunk["image_id"].to_s, credentials: @credentials)
+          end
+
+
+          oldlaunch = if @config['basis']['launch_template']
+            begin
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_launch_templates(
+                launch_template_names: [@mu_name]
+              ).launch_templates.first
+            rescue Aws::EC2::Errors::InvalidLaunchTemplateNameNotFoundException
+              nil
+            end
+          else
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_launch_configurations(
+              launch_configuration_names: [@mu_name]
+            ).launch_configurations.first
+          end
+          puts "OLD LAUNCH".bold
+          pp oldlaunch
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
@@ -1160,10 +1211,10 @@ module MU
           )
 
           # Figure out which devices are embedded in the AMI already.
-          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [@config["basis"]["launch_config"]["ami_id"]]).images.first
+          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [launch_chunk["image_id"]]).images.first
 
           if image.nil?
-            raise "#{@config["basis"]["launch_config"]["ami_id"]} does not exist, cannot update/create launch config #{@mu_name}"
+            raise "#{launch_chunk["image_id"]} does not exist, cannot update/create launch config #{@mu_name}"
           end
 
           ext_disks = {}
@@ -1179,8 +1230,8 @@ module MU
           end
 
           storage = []
-          if !@config["basis"]["launch_config"]["storage"].nil?
-            @config["basis"]["launch_config"]["storage"].each { |vol|
+          if !launch_chunk["storage"].nil?
+            launch_chunk["storage"].each { |vol|
               if ext_disks.has_key?(vol["device"])
                 if ext_disks[vol["device"]].has_key?(:snapshot_id)
                   vol.delete("encrypted")
@@ -1194,155 +1245,199 @@ module MU
           storage.concat(MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings)
 
           if !oldlaunch.nil?
-            olduserdata = Base64.decode64(oldlaunch.user_data)
-            if userdata == olduserdata and
-                oldlaunch.image_id == @config["basis"]["launch_config"]["ami_id"] and
-                oldlaunch.ebs_optimized == @config["basis"]["launch_config"]["ebs_optimized"] and
-                oldlaunch.instance_type == @config["basis"]["launch_config"]["size"] and
-                oldlaunch.instance_monitoring.enabled == @config["basis"]["launch_config"]["monitoring"]
-                # XXX check more things
+            if @config['basis']['launch_template']
+MU.log "XXX LAUNCH TEMPLATE ADD A NEW VERSION", MU::ERR
+            else
+              olduserdata = Base64.decode64(oldlaunch.user_data)
+              if userdata == olduserdata and
+                  oldlaunch.image_id == launch_chunk["image_id"] and
+                  oldlaunch.ebs_optimized == launch_chunk["ebs_optimized"] and
+                  oldlaunch.instance_type == launch_chunk["size"] and
+                  oldlaunch.instance_monitoring.enabled == launch_chunk["monitoring"]
+                  # XXX check more things
 #                launch.block_device_mappings != storage
 #                XXX block device comparison isn't this simple
-              return
-            end
-
-            # Put our Autoscale group onto a temporary launch config
-            try_ami = oldlaunch.image_id
-            begin
-
-              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(
-                launch_configuration_name: @mu_name+"-TMP",
-                user_data: Base64.encode64(olduserdata),
-                image_id: try_ami,
-                key_name: oldlaunch.key_name,
-                security_groups: oldlaunch.security_groups,
-                instance_type: oldlaunch.instance_type,
-                block_device_mappings: storage,
-                instance_monitoring: oldlaunch.instance_monitoring,
-                iam_instance_profile: oldlaunch.iam_instance_profile,
-                ebs_optimized: oldlaunch.ebs_optimized,
-                associate_public_ip_address: oldlaunch.associate_public_ip_address
-              )
-            rescue ::Aws::AutoScaling::Errors::ValidationError => e
-              if e.message.match(/Member must have length less than or equal to (\d+)/)
-                MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
-              elsif e.message.match(/AMI cannot be described/) and try_ami == oldlaunch.image_id and try_ami != @config['basis']['launch_config']["ami_id"]
-                try_ami = @config['basis']['launch_config']["ami_id"]
-                retry
-              else
-                MU.log "Error saving copy of old #{@mu_name} Launch Config: #{e.message}", MU::ERR
+                return
               end
-              raise e.message
+
+              # Put our Autoscale group onto a temporary launch config
+              try_ami = oldlaunch.image_id
+              begin
+
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(
+                  launch_configuration_name: @mu_name+"-TMP",
+                  user_data: Base64.encode64(olduserdata),
+                  image_id: try_ami,
+                  key_name: oldlaunch.key_name,
+                  security_groups: oldlaunch.security_groups,
+                  instance_type: oldlaunch.instance_type,
+                  block_device_mappings: storage,
+                  instance_monitoring: oldlaunch.instance_monitoring,
+                  iam_instance_profile: oldlaunch.iam_instance_profile,
+                  ebs_optimized: oldlaunch.ebs_optimized,
+                  associate_public_ip_address: oldlaunch.associate_public_ip_address
+                )
+              rescue ::Aws::AutoScaling::Errors::ValidationError => e
+                if e.message.match(/Member must have length less than or equal to (\d+)/)
+                  MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+                elsif e.message.match(/AMI cannot be described/) and try_ami == oldlaunch.image_id and try_ami != launch_chunk["image_id"]
+                  try_ami = launch_chunk["image_id"]
+                  retry
+                else
+                  MU.log "Error saving copy of old #{@mu_name} Launch Config: #{e.message}", MU::ERR
+                end
+                raise e.message
+              end
+
+
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
+                auto_scaling_group_name: @mu_name,
+                launch_configuration_name: @mu_name+"-TMP"
+              )
+              # ...now back to an identical one with the "real" name
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
+                launch_configuration_name: @mu_name
+              )
             end
-
-
-            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
-              auto_scaling_group_name: @mu_name,
-              launch_configuration_name: @mu_name+"-TMP"
-            )
-            # ...now back to an identical one with the "real" name
-            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
-              launch_configuration_name: @mu_name
-            )
           end
 
-          # Now to build the new one
           sgs = []
           if @dependencies.has_key?("firewall_rule")
             @dependencies['firewall_rule'].values.each { |sg|
               sgs << sg.cloud_id
             }
           end
-
-          launch_options = {
-            :launch_configuration_name => @mu_name,
-            :user_data => Base64.encode64(userdata),
-            :image_id => @config["basis"]["launch_config"]["ami_id"],
-            :key_name => @deploy.ssh_key_name,
-            :security_groups => sgs,
-            :instance_type => @config["basis"]["launch_config"]["size"],
-            :block_device_mappings => storage,
-            :instance_monitoring => {:enabled => @config["basis"]["launch_config"]["monitoring"]},
-            :ebs_optimized => @config["basis"]["launch_config"]["ebs_optimized"]
-          }
-          if @config["vpc"] or @config["vpc_zone_identifier"]
-            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
-          end
-          ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
-            if @config['basis']['launch_config'][arg]
-              launch_options[arg.to_sym] = @config['basis']['launch_config'][arg]
-            end
-          }
-          rolename = nil
-
           ['generate_iam_role', 'iam_policies', 'canned_iam_policies', 'iam_role'].each { |field|
-            if !@config['basis']['launch_config'].nil?
-              @config[field] = @config['basis']['launch_config'][field]
+            if launch_chunk
+              @config[field] = launch_chunk[field]
             else
-              @config['basis']['launch_config'][field] = @config[field]
+              launch_chunk[field] = @config[field]
             end
           }
-
-          @config['iam_role'] = @config['basis']['launch_config']['iam_role'] = launch_options[:iam_instance_profile] = MU::Cloud.resourceClass("AWS", "Server").getIAMProfile(
+          @config['iam_role'] = launch_chunk['iam_role'] = MU::Cloud.resourceClass("AWS", "Server").getIAMProfile(
             @config['name'],
             @deploy,
-            generated: @config['basis']['launch_config']['generate_iam_role'],
-            role_name: @config['basis']['launch_config']['iam_role'],
+            generated: launch_chunk['generate_iam_role'],
+            role_name: launch_chunk['iam_role'],
             region: @region,
             credentials: @credentials
           ).values.first
 
-          lc_attempts = 0
-          begin
-            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(launch_options)
-          rescue Aws::AutoScaling::Errors::ValidationError => e
-            if lc_attempts > 3
-              MU.log "Got error while creating #{@mu_name} Launch Config#{@credentials ? " with credentials #{@credentials}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
+          if @config['basis']['launch_config']
+            @config['basis']['launch_config']['iam_role'] = @config['iam_role']
+            launch_options = {
+              :launch_configuration_name => @mu_name,
+              :user_data => Base64.encode64(userdata),
+              :image_id => launch_chunk["image_id"],
+              :key_name => @deploy.ssh_key_name,
+              :iam_instance_profile => @config['iam_role'],
+              :security_groups => sgs,
+              :instance_type => launch_chunk["size"],
+              :block_device_mappings => storage,
+              :instance_monitoring => {:enabled => launch_chunk["monitoring"]},
+              :ebs_optimized => launch_chunk["ebs_optimized"]
+            }
+            if @config["vpc"] or @config["vpc_zone_identifier"]
+              launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
             end
-            sleep 5
-            lc_attempts += 1
-            retry
+            ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
+              if launch_chunk[arg]
+                launch_options[arg.to_sym] = launch_chunk[arg]
+              end
+            }
+            rolename = nil
+
+            lc_attempts = 0
+            begin
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(launch_options)
+            rescue Aws::AutoScaling::Errors::ValidationError => e
+              if lc_attempts > 3
+                MU.log "Got error while creating #{@mu_name} Launch Config#{@credentials ? " with credentials #{@credentials}" : ""}: #{e.message}, retrying in 5s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
+              end
+              sleep 5
+              lc_attempts += 1
+              retry
+            end
+            MU.log "Launch Configuration #{@mu_name} created"
+          elsif !oldlaunch # XXX actually just generate a version instead of a whole new template
+            @config['basis']['launch_template']['iam_role'] = @config['iam_role']
+            launch_options = {
+              :launch_template_name => @mu_name,
+              :version_description => "initial",
+              :launch_template_data => {
+                :image_id => launch_chunk["image_id"],
+                :instance_type => launch_chunk["size"],
+                :block_device_mappings => storage,
+                :key_name => @deploy.ssh_key_name,
+                :security_group_ids => sgs,
+                :iam_instance_profile => {
+                  :name => @config['iam_role']
+                },
+                :ebs_optimized => launch_chunk["ebs_optimized"],
+                :monitoring => {:enabled => launch_chunk["monitoring"]},
+                :tag_specifications => [
+                 :resource_type => "instance",
+                 :tags => @tags.keys.map { |t| { key: t, value: @tags[t] } }
+                ],
+                :user_data => Base64.encode64(userdata),
+              },
+            }
+            ["kernel_id", "ramdisk_id"].each { |arg|
+              if launch_chunk[arg]
+                launch_options[:launch_template_data][arg.to_sym] = launch_chunk[arg]
+              end
+            }
+            lt_attempts = 0
+            resp = nil
+            begin
+              resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_launch_template(launch_options)
+              pp resp
+              if !resp or !resp.launch_template or resp.launch_template.empty? or (resp and resp.warning and resp.warning.errors)
+                MU.log "Got error while creating #{@mu_name} Launch Template#{@credentials ? " with credentials #{@credentials}" : ""}: #{resp.warning.errors.first.message} (deleting then retrying in 5s)", MU::WARN, details: launch_options
+                MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).delete_launch_template(launch_template_id: resp.launch_template.launch_template_id)
+                sleep 5
+                lt_attempts += 1
+              end
+            end while lt_attempts < 5 and resp and resp.warning and resp.warning.errors
+            MU.log "Launch Template #{@mu_name} created"
           end
 
           if !oldlaunch.nil?
-            # Tell the ASG to use the new one, and nuke the old one
-            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
-              auto_scaling_group_name: @mu_name,
-              launch_configuration_name: @mu_name
-            )
-            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
-              launch_configuration_name: @mu_name+"-TMP"
-            )
-            MU.log "Launch Configuration #{@mu_name} replaced"
-          else
-            MU.log "Launch Configuration #{@mu_name} created"
+            if @config['basis']['launch_template']
+MU.log "XXX LAUNCH TEMPLATE MAKE ASG USE NEW VERSION", MU::ERR
+            else
+              # Tell the ASG to use the new LaunchConfig, and nuke the old one
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
+                auto_scaling_group_name: @mu_name,
+                launch_configuration_name: @mu_name
+              )
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
+                launch_configuration_name: @mu_name+"-TMP"
+              )
+              MU.log "Launch Configuration #{@mu_name} replaced"
+            end
           end
 
         end
 
+
+
+
         def buildOptionsHash
           asg_options = {
             :auto_scaling_group_name => @mu_name,
-            :launch_configuration_name => @mu_name,
             :default_cooldown => @config["default_cooldown"],
             :health_check_type => @config["health_check_type"],
             :health_check_grace_period => @config["health_check_grace_period"],
-            :tags => []
           }
+          asg_options[:tags] = @tags.keys.map { |t| { key: t, value: @tags[t], propagate_at_launch: true } }
 
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
-          }
-
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each_pair { |name, value|
-              asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
-            }
-          end
-
-          if @config['tags']
-            @config['tags'].each { |tag|
-              asg_options[:tags] << {key: tag['key'], value: tag['value'], propagate_at_launch: true}
+          if @config['basis']['launch_config']
+            asg_options[:launch_configuration_name] = @mu_name
+          else
+            asg_options[:launch_template] = {
+              :launch_template_name => @mu_name,
+              :version => "$Default"
             }
           end
 

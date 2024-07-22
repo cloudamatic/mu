@@ -535,9 +535,9 @@ end
         if !@@is_in_aws.nil?
           return @@is_in_aws
         end
-
+start = Time.now
         begin
-          Timeout.timeout(4) do
+          Timeout.timeout(10) do
             instance_id = URI.open("http://169.254.169.254/latest/meta-data/instance-id").read
             if !instance_id.nil? and instance_id.size > 0
               @@is_in_aws = true
@@ -554,6 +554,7 @@ end
           end
         rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::EHOSTUNREACH
         end
+MU.log "Fetch of http://169.254.169.254/latest/meta-data/instance-id took #{sprintf("%.2fs", Time.now-start)}", MU::WARN
 
         @@is_in_aws = false
         false

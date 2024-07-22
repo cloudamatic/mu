@@ -150,6 +150,7 @@ module MU
       @deploy_id = deploy_id
       @mu_user = mu_user.dup
       @no_artifacts = no_artifacts
+      @ssh_key_generated = false
 
       # Make sure mu_user and chef_user are sane.
       if @mu_user == "root"
@@ -515,7 +516,7 @@ module MU
     # Return the parts and pieces of this deploy's node ssh key set. Generate
     # or load if that hasn't been done already.
     def SSHKey
-      return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
+      return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if @ssh_key_generated
       if numKittens(types: ["Server", "ServerPool", "ContainerCluster"]) == 0
         return []
       end
@@ -560,6 +561,7 @@ module MU
         }
       end
 
+      @ssh_key_generated = true
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]
     end
 
