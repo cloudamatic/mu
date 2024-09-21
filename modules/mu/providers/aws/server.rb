@@ -276,6 +276,11 @@ module MU
           :key_name => @deploy.ssh_key_name,
           :instance_type => @config["size"],
           :disable_api_termination => true,
+          :metadata_options => {
+            :http_tokens => "optional",
+            :http_endpoint => "enabled",
+            :instance_metadata_tags => "enabled"
+          },
           :min_count => 1,
           :max_count => 1
         }
@@ -839,16 +844,6 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           MU::MommaCat.lock(@cloud_id+"-groom")
-
-          # AWS' new thing breaks simple access to instance metadata. Just...
-          # make it act normal.
-          MU.log "Ensuring access to instance metadata for #{@cloud_id}", MU::NOTICE
-          resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).modify_instance_metadata_options(
-            instance_id: @cloud_id,
-            http_tokens: "optional",
-            http_endpoint: "enabled",
-            instance_metadata_tags: "enabled"
-          )
 
           # Make double sure we don't lose a cached mu_windows_name value.
           if windows? or !@config['active_directory'].nil?

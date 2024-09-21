@@ -1376,6 +1376,11 @@ MU.log "XXX LAUNCH TEMPLATE ADD A NEW VERSION", MU::ERR
                 :key_name => @deploy.ssh_key_name,
                 :security_group_ids => sgs,
                 :instance_initiated_shutdown_behavior => @config['shutdown_behavior'],
+                :metadata_options => {
+                  :http_tokens => "optional",
+                  :http_endpoint => "enabled",
+                  :instance_metadata_tags => "enabled"
+                },
                 :iam_instance_profile => {
                   :name => @config['iam_role']
                 },
