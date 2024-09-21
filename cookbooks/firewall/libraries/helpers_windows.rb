@@ -44,12 +44,11 @@ module FirewallCookbook
 
       def to_type(new_resource)
         cmd = new_resource.command
-        type = if cmd == :reject || cmd == :deny
-                 :block
-               else
-                 :allow
-               end
-        type
+        if cmd == :reject || cmd == :deny
+          :block
+        else
+          :allow
+        end
       end
 
       def build_rule(new_resource)
@@ -66,13 +65,13 @@ module FirewallCookbook
         if new_resource.direction.to_sym == :out
           parameters['localip'] = new_resource.source ? fixup_cidr(new_resource.source) : 'any'
           parameters['localport'] = new_resource.source_port ? port_to_s(new_resource.source_port) : 'any'
-          parameters['interfacetype'] = new_resource.interface ? new_resource.interface : 'any'
+          parameters['interfacetype'] = new_resource.interface || 'any'
           parameters['remoteip'] = new_resource.destination ? fixup_cidr(new_resource.destination) : 'any'
           parameters['remoteport'] = new_resource.dest_port ? port_to_s(new_resource.dest_port) : 'any'
         else
-          parameters['localip'] = new_resource.destination ? new_resource.destination : 'any'
+          parameters['localip'] = new_resource.destination || 'any'
           parameters['localport'] = dport_calc(new_resource) ? port_to_s(dport_calc(new_resource)) : 'any'
-          parameters['interfacetype'] = new_resource.dest_interface ? new_resource.dest_interface : 'any'
+          parameters['interfacetype'] = new_resource.dest_interface || 'any'
           parameters['remoteip'] = new_resource.source ? fixup_cidr(new_resource.source) : 'any'
           parameters['remoteport'] = new_resource.source_port ? port_to_s(new_resource.source_port) : 'any'
         end

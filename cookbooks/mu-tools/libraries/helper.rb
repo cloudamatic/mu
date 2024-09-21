@@ -43,6 +43,9 @@ module Mutools
         require 'aws-sdk-s3'
       rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT => e
         # This is fairly normal, just handle it gracefully
+        if e.code == 401
+          puts "*************** Got 401 Unauthorized trying to fetch #{base_url}/#{param}. This instance may be requiring IMDSv2 requests to fetch its own metadata. ***************"
+        end
       end
       nil
     end

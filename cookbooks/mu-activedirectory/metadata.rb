@@ -10,7 +10,7 @@ chef_version '>= 14.0' if respond_to?(:chef_version)
 version '0.2.0'
 depends "windows", '~> 5.1.1'
 depends "chef-vault", '~> 3.1.1'
-depends "yum-epel", '~> 3.2.0'
+depends "yum-epel", '~> 5.0.8'
 
 %w( amazon centos redhat windows ).each do |os|
 	supports os

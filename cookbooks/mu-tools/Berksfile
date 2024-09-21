@@ -4,18 +4,18 @@ source chef_repo: ".."
 metadata
 
 # Mu Cookbooks
-cookbook 'mu-nagios' , '~> 8.2.0', git: "https://github.com/cloudamatic/mu-nagios.git"
 cookbook "mu-utility"
 cookbook "mu-splunk"
 cookbook "mu-firewall"
 cookbook "mu-activedirectory"
 
 # Supermarket Cookbooks
+cookbook "nagios"
 cookbook "oracle-instantclient", '~> 1.1.0'
 cookbook "database", '~> 6.1.1'
 cookbook "postgresql", '~> 7.1.0'
 cookbook "java", '~> 2.2.0'
 cookbook "windows", '~> 5.1.1'
 cookbook "chef-vault", '~> 3.1.1'
-cookbook "yum-epel", '~> 3.2.0'
+cookbook "yum-epel", '~> 5.0.8'
 cookbook 'selinux', '~> 3.0.0'

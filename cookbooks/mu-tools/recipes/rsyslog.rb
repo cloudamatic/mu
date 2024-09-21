@@ -20,7 +20,11 @@ if !node['application_attributes']['skip_recipes'].include?('rsyslog')
   case node['platform_family']
   when "rhel", "debian", "amazon"
     package "rsyslog"
-    package "rsyslog-gnutls"
+    if platform_family?("amazon") and node['platform_version'].to_i == 2023
+      package "rsyslog-crypto"
+    else
+      package "rsyslog-gnutls"
+    end
     execute "chcon -R -h -t var_log_t /Mu_Logs" do
       action :nothing
       only_if { ::Dir.exist?("/Mu_Logs") }

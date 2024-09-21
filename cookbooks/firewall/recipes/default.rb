@@ -2,7 +2,7 @@
 # Cookbook:: firewall
 # Recipe:: default
 #
-# Copyright:: 2011-2016, Chef Software, Inc.
+# Copyright:: 2011-2019, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,13 +23,13 @@ firewall 'default' do
 end
 
 # create a variable to use as a condition on some rules that follow
-iptables_firewall = platform_family?("rhel") || platform_family?("amazon") || node['firewall']['ubuntu_iptables']
+iptables_firewall = rhel? || amazon_linux? || node['firewall']['ubuntu_iptables']
 
 firewall_rule 'allow loopback' do
   interface 'lo'
   protocol :none
   command :allow
-  only_if { node["os"] == "linux" && node['firewall']['allow_loopback'] }
+  only_if { linux? && node['firewall']['allow_loopback'] }
 end
 
 firewall_rule 'allow icmp' do
@@ -37,26 +37,26 @@ firewall_rule 'allow icmp' do
   command :allow
   # debian ufw doesn't allow 'icmp' protocol, but does open
   # icmp by default, so we skip it in default recipe
-  only_if { (!debian?(node) || iptables_firewall) && node['firewall']['allow_icmp'] }
+  only_if { iptables_firewall && node['firewall']['allow_icmp'] }
 end
 
 firewall_rule 'allow world to ssh' do
   port 22
   source '0.0.0.0/0'
-  only_if { node["os"] == "linux" && node['firewall']['allow_ssh'] }
+  only_if { linux? && node['firewall']['allow_ssh'] }
 end
 
 firewall_rule 'allow world to winrm' do
   port 5989
   source '0.0.0.0/0'
-  only_if { node["os"] == "windows" && node['firewall']['allow_winrm'] }
+  only_if { windows? && node['firewall']['allow_winrm'] }
 end
 
 firewall_rule 'allow world to mosh' do
   protocol :udp
   port 60000..61000
   source '0.0.0.0/0'
-  only_if { node["os"] == "linux" && node['firewall']['allow_mosh'] }
+  only_if { linux? && node['firewall']['allow_mosh'] }
 end
 
 # allow established connections, ufw defaults to this but iptables does not

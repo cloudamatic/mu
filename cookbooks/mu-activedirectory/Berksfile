@@ -8,4 +8,4 @@ metadata
 # Supermarket Cookbooks
 cookbook "windows", '~> 5.1.1'
 cookbook "chef-vault", '~> 3.1.1'
-cookbook "yum-epel", '~> 3.2.0'
+cookbook "yum-epel", '~> 5.0.8'

@@ -9,15 +9,16 @@ OPTS = Optimist::options do
   opt :username, "Kibana username", :required => false, :type => :string
   opt :password, "Kibana password", :required => false, :type => :string
   opt :port, "Port to check for Kibana", :required => false, :default => 5601, :type => :integer
+  opt :basepath, "Path prefix for API requests", :required => false, :default => "", :type => :string
 end
 
-uri = "https://"+OPTS[:host]+":"+OPTS[:port].to_s+"/api/status"
+uri = "https://"+OPTS[:host]+":"+OPTS[:port].to_s+OPTS[:basepath]+"/api/status"
 req = Net::HTTP::Get.new(uri)
 if OPTS[:username] and OPTS[:password]
   req.basic_auth OPTS[:username], OPTS[:password]
 end
 begin
-  Net::HTTP.start(OPTS[:host], OPTS[:port]) do |http|
+  Net::HTTP.start(OPTS[:host], OPTS[:port], :use_ssl => true) do |http|
     resp = JSON.parse(http.request(req).body)
     status = resp["status"]["overall"]
     output = status["nickname"]+" since "+status["since"]

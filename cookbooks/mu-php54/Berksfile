@@ -9,4 +9,4 @@ cookbook 'mu-utility'
 # Supermarket Cookbooks
 cookbook 'simple_iptables', '~> 0.8.0'
 cookbook 'mysql', '~> 8.5.1'
-cookbook 'yum-epel', '~> 3.2.0'
+cookbook 'yum-epel', '~> 5.0.8'

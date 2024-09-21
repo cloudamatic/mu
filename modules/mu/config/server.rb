@@ -448,6 +448,21 @@ module MU
               },
               {
                 "key_is" => "platform",
+                "value_is" => "amazon",
+                "set" => "ec2-user"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "amazon2",
+                "set" => "ec2-user"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "amazon2023",
+                "set" => "ec2-user"
+              },
+              {
+                "key_is" => "platform",
                 "value_is" => "centos8",
                 "set" => "centos"
               }

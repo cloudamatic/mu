@@ -21,11 +21,14 @@ if !node['application_attributes']['skip_recipes'].include?('base_repositories')
   case node['platform_family']
     when "rhel", "redhat", "amazon" # ~FC024
       # Workaround for EOL CentOS 5 repos
-      if node['platform'] != "amazon" and node['platform_version'].to_i <= 6
+      if node['platform_family'] != "amazon" and node['platform_version'].to_i <= 6
         cookbook_file "/etc/yum.repos.d/CentOS-Base.repo" do
           source "CentOS-Base.repo"
         end
       end
       include_recipe "yum-epel"
+  end
+  if platform_family?("amazon")
+    package "cronie"
   end
 end

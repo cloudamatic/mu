@@ -840,6 +840,16 @@ module MU
         def groom
           MU::MommaCat.lock(@cloud_id+"-groom")
 
+          # AWS' new thing breaks simple access to instance metadata. Just...
+          # make it act normal.
+          MU.log "Ensuring access to instance metadata for #{@cloud_id}", MU::NOTICE
+          resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).modify_instance_metadata_options(
+            instance_id: @cloud_id,
+            http_tokens: "optional",
+            http_endpoint: "enabled",
+            instance_metadata_tags: "enabled"
+          )
+
           # Make double sure we don't lose a cached mu_windows_name value.
           if windows? or !@config['active_directory'].nil?
             if @mu_windows_name.nil?
@@ -895,7 +905,8 @@ module MU
             end
           rescue MU::Groomer::RunError => e
             raise e if !@config['create_image'].nil? and !@config['image_created']
-            MU.log "Proceeding after failed initial Groomer run, but #{@mu_name} may not behave as expected!", MU::WARN, details: e.message
+            MU.log "Proceeding after failed initial Groomer run, but #{@mu_name} may not behave as expected!", MU::WARN, details: e.inspect
+            pp e.backtrace
           rescue StandardError => e
             raise e if !@config['create_image'].nil? and !@config['image_created']
             MU.log "Caught #{e.inspect} on #{@mu_name} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
@@ -1751,6 +1762,16 @@ module MU
                 {
                   "key_is" => "platform",
                   "value_is" => "amazon",
+                  "set" => "ec2-user"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "amazon2",
+                  "set" => "ec2-user"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "amazon2023",
                   "set" => "ec2-user"
                 }
               ]

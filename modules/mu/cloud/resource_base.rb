@@ -417,7 +417,7 @@ module MU
 #                end
               }
 
-              matches = self.class.find(args)
+              matches = self.class.find(**args)
               if !matches.nil? and matches.is_a?(Hash)
 # XXX or if the hash is keyed with an ::Id element, oh boy
 #                puts matches[@cloud_id][:self_link]
@@ -900,10 +900,18 @@ module MU
             end
 
             retval = nil
-            if !args.nil? and args.size == 1
-              retval = @cloudobj.method(method).call(args.first)
-            elsif !args.nil? and args.size > 0
-              retval = @cloudobj.method(method).call(*args)
+            if !args.nil?
+              if args.is_a?(Hash)
+                retval = @cloudobj.method(method).call(**args)
+              elsif args.is_a?(Array) 
+                if args.size == 1 and args.first.is_a?(Hash)
+                  retval = @cloudobj.method(method).call(**args.first)
+                else
+                  retval = @cloudobj.method(method).call(*args)
+                end
+              else
+                retval = @cloudobj.method(method).call(args)
+              end
             else
               retval = @cloudobj.method(method).call
             end

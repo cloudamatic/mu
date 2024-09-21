@@ -66,7 +66,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
         notifies :run, "execute[enable manual auditd restarts]", :before
       end
   
-      if node['platform_version'].to_i < 7
+      if !platform_family?("amazon") and node['platform_version'].to_i < 7
         cookbook_file "/etc/audit/audit.rules" do
           source "etc/audit/stig.rules"
           notifies :restart, "service[auditd]", :delayed
@@ -124,11 +124,12 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
   
   
       bash "Logging and Auditing" do
-        code <<-EOH
   				#4.1.4 Create and Set Permissions on rsyslog Log Files
   				#find `awk '/^ *[^#$]/ { print $2 }' /etc/rsyslog.conf | egrep -o "/.*"` -perm /o+rwx
+        code <<-EOH
   				chmod og-rwx /var/log/boot.log
         EOH
+        only_if { File.exist?("/var/log/boot.log") }
       end
   
       bash "Network Configuration and Firewalls" do

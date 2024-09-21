@@ -113,6 +113,7 @@ module MU
                 }
               rescue MU::Groomer::RunError => e
                 MU.log "Proceeding after failed initial Groomer run, but #{member.instance_id} may not behave as expected!", MU::WARN, details: e.inspect
+                pp e.backtrace
               rescue StandardError => e
                 if !member.nil? and !done
                   MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
@@ -591,6 +592,12 @@ module MU
                   "default" => ["launch", "failed_launch", "terminate", "failed_terminate"]
                 }
               }
+            },
+            "shutdown_behavior" => {
+              "type" => "string",
+              "description" => "(Instance Templates only) Behavior when an instance is shut down at OS level",
+              "default" => "terminate",
+              "enum" => ["stop", "terminate"]
             },
             "generate_iam_role" => {
               "type" => "boolean",
@@ -1185,8 +1192,6 @@ module MU
               launch_configuration_names: [@mu_name]
             ).launch_configurations.first
           end
-          puts "OLD LAUNCH".bold
-          pp oldlaunch
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
@@ -1370,6 +1375,7 @@ MU.log "XXX LAUNCH TEMPLATE ADD A NEW VERSION", MU::ERR
                 :block_device_mappings => storage,
                 :key_name => @deploy.ssh_key_name,
                 :security_group_ids => sgs,
+                :instance_initiated_shutdown_behavior => @config['shutdown_behavior'],
                 :iam_instance_profile => {
                   :name => @config['iam_role']
                 },

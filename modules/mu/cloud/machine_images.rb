@@ -27,14 +27,14 @@ module MU
     # Aliases for platform names, in case we don't have actual images built for
     # them.
     PLATFORM_ALIASES = {
-      "linux" => "centos7",
+      "linux" => "amazon2023",
       "windows" => "win2k12r2",
       "win2k12" => "win2k12r2",
       "ubuntu" => "ubuntu16",
       "centos" => "centos7",
       "rhel7" => "rhel71",
       "rhel" => "rhel71",
-      "amazon" => "amazon2016"
+      "amazon" => "amazon2023"
     }
 
     @@image_fetch_cache = {}
@@ -87,28 +87,29 @@ module MU
       end
       
       images = nil
-      urls.each { |base_url|
-        @@image_fetch_semaphore.synchronize {
-          if @@image_fetch_cache[cloud] and (Time.now - @@image_fetch_cache[cloud]['time']) < 30
-            images = @@image_fetch_cache[cloud]['contents'].dup
-          else
-            begin
-              Timeout.timeout(2) do
-                response = URI.open("#{base_url}/#{cloud}.yaml").read
-                images ||= {}
-                images.deep_merge!(YAML.load(response))
-                break
-              end
-            rescue StandardError => e
-              if fail_hard
-                raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
-              else
-                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN if !quiet
-              end
-            end
-          end
-        }
-      }
+# XXX no ability to update this cache anymore, and it's pointless now anyway
+#      urls.each { |base_url|
+#        @@image_fetch_semaphore.synchronize {
+#          if @@image_fetch_cache[cloud] and (Time.now - @@image_fetch_cache[cloud]['time']) < 30
+#            images = @@image_fetch_cache[cloud]['contents'].dup
+#          else
+#            begin
+#              Timeout.timeout(2) do
+#                response = URI.open("#{base_url}/#{cloud}.yaml").read
+#                images ||= {}
+#                images.deep_merge!(YAML.load(response))
+#                break
+#              end
+#            rescue StandardError => e
+#              if fail_hard
+#                raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
+#              else
+#                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN if !quiet
+#              end
+#            end
+#          end
+#        }
+#      }
 
       @@image_fetch_semaphore.synchronize {
         @@image_fetch_cache[cloud] = {
@@ -127,7 +128,7 @@ module MU
         [backwards_compat[cloud], cloud].each { |file|
           next if file.nil?
           if File.exist?("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml")
-            images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml"))
+            images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml"), aliases: true)
             break
           end
         }

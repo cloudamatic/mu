@@ -111,7 +111,7 @@ module MU
 
               credsets.each { |creds|
                 args[:credentials] = creds
-                found = cloudclass.find(args)
+                found = cloudclass.find(**args)
                 if !found.nil?
                   if found.is_a?(Hash)
                     allfound.merge!(found)
@@ -150,7 +150,7 @@ module MU
 
               raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
               MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
-              cloudclass.cleanup(params)
+              cloudclass.cleanup(**params)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
             rescue StandardError => e

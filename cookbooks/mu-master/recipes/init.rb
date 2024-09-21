@@ -38,7 +38,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="14.11.31-1"
-CHEF_CLIENT_VERSION="18.2.7"
+CHEF_CLIENT_VERSION="18.5.0"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 
@@ -243,7 +243,8 @@ rpms = {
   "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
 }
 
-rpms["ruby27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.7.2-1.el#{elversion}.x86_64.rpm"
+#rpms["ruby27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.7.2-1.el#{elversion}.x86_64.rpm"
+rpms["ruby27"] = "/root/rpmbuild/RPMS/x86_64/muby-3.3.5-1.el#{elversion}.x86_64.rpm"
 if elversion.to_i == 6
   rpms["openssl"] = "https://s3.amazonaws.com/cloudamatic/mussl-1.1.1h-1.el6.x86_64.rpm"
   rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
@@ -356,7 +357,7 @@ end
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
-    if pkg == "ruby27" 
+    if pkg == "ruby33" 
       options '--prefix=/opt/rubies/'
     end
     if pkg == "epel-release" 
@@ -728,6 +729,11 @@ bash "fix misc permissions" do
     find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+r {} \\;
     chmod go+rx #{MU_BASE}/lib/bin/* #{MU_BASE}/lib/extras/*-stock-* #{MU_BASE}/lib/extras/vault_tools/*.sh
   EOH
+end
+
+# https://github.com/chef/chef-server/issues/3109#issuecomment-1022084825
+execute "ensure Chef indexes aren't read-only" do
+  command %Q{curl -XPUT -H "Content-Type: application/json" http://127.0.0.1:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'}
 end
 
 directory TMPDIR do

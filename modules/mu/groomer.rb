@@ -129,10 +129,18 @@ module MU
           MU.log "Calling groomer method #{method}", MU::DEBUG, details: ["sensitive output suppress"]
         end
         begin
-          if !args.nil? and args.size == 1
-            retval = @groomer_obj.method(method).call(args.first)
-          elsif !args.nil? and args.size > 0
-            retval = @groomer_obj.method(method).call(*args)
+          if !args.nil?
+            if args.is_a?(Hash)
+              retval = @groomer_obj.method(method).call(**args)
+            elsif args.is_a?(Array) 
+              if args.size == 1 and args.first.is_a?(Hash)
+                retval = @groomer_obj.method(method).call(**args.first)
+              else
+                retval = @groomer_obj.method(method).call(*args)
+              end
+            else
+              retval = @groomer_obj.method(method).call(args)
+            end
           else
             retval = @groomer_obj.method(method).call
           end

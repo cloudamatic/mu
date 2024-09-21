@@ -84,7 +84,9 @@ rhel79: &5
   us-east-2: ami-03be73fea244ae122
   us-west-1: ami-0c2b107078c52b02e
   us-west-2: ami-0557fe078d2fcf2bf
-amazon:
+amazon2023: &6
+  us-east-1: ami-066784287e358dad1
+amazon2:
   us-east-1: ami-b73b63a0
   us-east-2: ami-58277d3d
   us-west-1: ami-23e8a343
@@ -103,4 +105,5 @@ ubuntu: *3
 centos: *4
 rhel7: *5
 rhel: *5
-linux: *4
+linux: *6
+amazon: *6

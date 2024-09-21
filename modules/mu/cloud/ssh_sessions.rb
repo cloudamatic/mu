@@ -158,7 +158,8 @@ module MU
                   :keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
                   :verify_host_key => :never, # grr
                   #           :verbose => :info,
-                  :host_key => "ssh-rsa",
+#                  :host_key => "ssh-rsa",
+                  :host_key => "ecdsa-sha2-nistp256",
                   :port => 22,
                   :auth_methods => ['publickey'],
                   :proxy => proxy
@@ -174,7 +175,8 @@ module MU
                   :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
                   :verify_host_key => :never, # grr
                   #           :verbose => :info,
-                  :host_key => "ssh-rsa",
+#                  :host_key => "ssh-rsa",
+                  :host_key => "ecdsa-sha2-nistp256",
                   :port => 22,
                   :auth_methods => ['publickey']
               )

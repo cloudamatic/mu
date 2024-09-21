@@ -141,10 +141,9 @@ default['application_attributes']['var_log_audit']['mount_directory'] = "/var/lo
 
 default['banner']['path'] = "etc/BANNER-FEDERAL"
 # firewalld support in the firewall cookbook is too stupid to breathe
-default['firewall']['redhat7_iptables'] = true
-#if node['platform'] == 'amazon'
-#  override['firewall']['redhat7_iptables'] = true
-#end
+if !(node['platform_family'] == 'amazon' and node['platform_version'].to_i == 2023)
+  default['firewall']['redhat7_iptables'] = true
+end
 
 # We probably don't want to set java defaults here. This may cause issues with attribute precedence when other cookbooks try to install a different version of Java (JDK 7 is not supported/patched)
 # if platform_family?("windows")
