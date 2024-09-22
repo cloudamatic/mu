@@ -1109,7 +1109,11 @@ next if !create
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
         # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
-        def addVolume(dev, size, type: "pd-standard", delete_on_termination: false)
+        def addVolume(dev: nil, size: 0, type: "pd-standard", delete_on_termination: false)
+          if dev.nil? or size == 0
+            raise MuError, "Must specify a device name and a size for addVolume"
+          end
+                                        
           devname = dev.gsub(/.*?\/([^\/]+)$/, '\1')
           resname = MU::Cloud::Google.nameStr(@mu_name+"-"+devname)
           MU.log "Creating disk #{resname}"

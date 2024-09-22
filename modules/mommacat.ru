@@ -418,7 +418,7 @@ app = proc do |env|
           params = JSON.parse(Base64.decode64(req["add_volume"]))
           MU.log "add_volume request", MU::NOTICE, details: params
           Thread.current.thread_variable_set("addVolume", req["mu_instance_id"])
-          instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
+          instance.addVolume(dev: params["dev"], size: params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"
         end

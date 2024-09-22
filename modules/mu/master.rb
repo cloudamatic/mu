@@ -212,7 +212,7 @@ module MU
               cloud_id: MU.myInstanceId,
               kitten_cfg: {}
             )
-            dummy_svr.addVolume(device, size)
+            dummy_svr.addVolume(dev: device, size: size)
             MU::Cloud::AWS::Server.tagVolumes(
               MU.myInstanceId,
               device: device,
@@ -228,7 +228,7 @@ module MU
               cloud_id: MU.myInstanceId,
               kitten_cfg: { 'project' => MU::Cloud::Google.myProject, 'availability_zone' => MU.myAZ }
             )
-            dummy_svr.addVolume(device, size) # This will tag itself sensibly
+            dummy_svr.addVolume(dev: device, size: size) # This will tag itself sensibly
           else
             raise MuError, "Not in a familiar cloud, so I don't know how to create volumes for myself"
           end

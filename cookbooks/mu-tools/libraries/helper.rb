@@ -22,7 +22,7 @@ module Mutools
           ).read
           return response
         end
-      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT => e
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT, OpenSSL::SSL::SSLError => e
         # This is fairly normal, just handle it gracefully
       end
 
@@ -42,6 +42,7 @@ module Mutools
         require 'aws-sdk-ec2'
         require 'aws-sdk-s3'
       rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENOENT => e
+        puts e.inspect
         # This is fairly normal, just handle it gracefully
         if e.code == 401
           puts "*************** Got 401 Unauthorized trying to fetch #{base_url}/#{param}. This instance may be requiring IMDSv2 requests to fetch its own metadata. ***************"
@@ -318,6 +319,7 @@ module Mutools
       req = Net::HTTP::Post.new(uri)
       res_type = (node['deployment'].has_key?('server_pools') and node['deployment']['server_pools'].has_key?(node['service_name'])) ? "server_pool" : "server"
       response = nil
+      retries = 0
       begin
         secret = get_deploy_secret
         if secret.nil? or secret.empty?
@@ -360,7 +362,7 @@ module Mutools
             end while retries < 5 and !seen_requested
           end
         end
-      rescue EOFError => e
+      rescue EOFError, OpenSSL::SSL::SSLError => e
         # Sometimes deployment metadata is incomplete and missing a
         # server_pool entry. Try to help it out.
         # XXX find some awsmetadata way to determine that we're in an Autoscale Group before trying this
