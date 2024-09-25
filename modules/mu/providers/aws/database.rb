@@ -552,6 +552,53 @@ dependencies
           end
         end
 
+        # If we've declared special option group options, ensure that we have
+        # an option group of the same name as our database instance with the
+        # correct settings.
+        # @return [String]: The name of the option group our database should use
+        def manageOptionGroup
+          if @config['option_group_options'] and !@config['option_group_options'].empty?
+            og = begin
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_option_groups(
+                option_group_name: @mu_name
+              ).option_groups_list.first
+            rescue Aws::RDS::Errors::OptionGroupNotFoundFault
+              MU.log "Creating Option Group #{@mu_name} for #{@config['engine']} #{@config['major_version']} database #{@mu_name}"
+
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).create_option_group(
+                engine_name: @config['engine'],
+                major_engine_version: @config['major_version'],
+                option_group_name: @mu_name,
+                option_group_description: @deploy_id
+              ).option_group
+            end
+            need = []
+            ext_options = og.options.map { |o| o.option_name }
+            @config['option_group_options'].each { |opt|
+              if !ext_options.include?(opt)
+                need << { option_name: opt }
+              end
+            }
+
+            if !need.empty?
+              MU.log "Modifying Option Group #{@mu_name}", MU::NOTICE, need
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_option_group(
+                option_group_name: @mu_name,
+                apply_immediately: true,
+                options_to_include: need
+              )
+            end
+
+            @mu_name
+          # Otherwise if we've declared a non-default option group, ensure that
+          # we're using it.
+          elsif @config['option_group']
+            @config['option_group']
+          else
+            nil
+          end
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def groom
           cloud_desc(use_cache: false)
@@ -579,6 +626,11 @@ dependencies
              @config["vpc_security_group_ids"] and
              existing_sgs != @config["vpc_security_group_ids"].sort
             mods[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+          end
+
+          option_group_name = manageOptionGroup
+          if cloud_desc.option_group_memberships.first.option_group_name != option_group_name
+            mods[:option_group_name] = option_group_name
           end
 
           # If we've declared special option group options, ensure that we have
@@ -1446,6 +1498,7 @@ dependencies
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotFoundFault], max: 10, wait: 15) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
+              params[:option_group_name] = manageOptionGroup
               clean_parent_opts.call
               MU.log "Creating database #{noun} #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("restore_db_#{noun}_from_#{noun == "instance" ? "db_" : ""}snapshot".to_sym, params)
