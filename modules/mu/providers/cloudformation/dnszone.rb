@@ -248,7 +248,7 @@ module MU
         end
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
-        def self.genericMuDNSEntry(*args)
+        def self.genericMuDNSEntry(**args)
           MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
           nil
         end

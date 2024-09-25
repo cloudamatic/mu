@@ -22,9 +22,9 @@ module MU
 
       # Set a generic .platform-mu DNS entry for a resource, and return the name
       # that was set.
-      def self.genericMuDNSEntry(*flags)
+      def self.genericMuDNSEntry(**flags)
 # XXX have this switch on a global config for where Mu puts its DNS
-        MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone").genericMuDNSEntry(flags.first)
+        MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone").genericMuDNSEntry(**flags)
       end
 
       # Wrapper for {MU::Cloud::AWS::DNSZone.manageRecord}. Spawns threads to create all
