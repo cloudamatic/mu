@@ -202,6 +202,7 @@ module MU
         else
           device.dup
         end
+
         alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
 
         if !File.exist?(realdevice)
@@ -271,14 +272,16 @@ module MU
         end
 
         %x{/usr/sbin/xfs_admin -l "#{alias_device}" > /dev/null 2>&1}
+
         if $?.exitstatus != 0
           MU.log "Formatting #{alias_device}", MU::NOTICE
           %x{/sbin/mkfs.xfs "#{alias_device}"}
           %x{/usr/sbin/xfs_admin -L "#{path.gsub(/[^0-9a-z_\-]/i, "_")}" "#{alias_device}"}
         end
         Dir.mkdir(path, 0700) if !Dir.exist?(path) # XXX recursive
+
         %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
-        if $?.exitstatus != 0
+        if $?.exitstatus == 0 and !File.open("/etc/mtab").read.match(/ #{path} /)
           MU.log "Mounting #{alias_device} to #{path}"
           %x{/bin/mount "#{alias_device}" "#{path}"}
         end
