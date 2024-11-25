@@ -119,7 +119,7 @@ module MU
         if function['code']
           ['zip_file', 'path'].each { |src|
             if function['code'][src]
-              if !File.readable?(function['code'][src]) and !Dir.exists?(function['code'][src])
+              if !File.readable?(function['code'][src]) and !Dir.exist?(function['code'][src])
                 MU.log "Function '#{function['name']}' specifies a deployment package that I can't read at #{function['code'][src]}", MU::ERR
                 ok = false
               else

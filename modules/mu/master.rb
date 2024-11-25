@@ -943,7 +943,7 @@ module MU
           return true if l =~ /^\/dev\/nvme\d/
         }
       else
-        return true if File.exists?("/dev/nvme0n1")
+        return true if File.exist?("/dev/nvme0n1")
       end
       false
     end

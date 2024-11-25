@@ -239,10 +239,10 @@ end
 if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   wd = Dir.getwd
   Dir.chdir("/")
-  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+  if File.exist?("/opt/opscode/bin/chef-server-ctl")
     system("/opt/opscode/bin/chef-server-ctl stop")
   end
-  if !File.exists?("/sbin/mkfs.xfs")
+  if !File.exist?("/sbin/mkfs.xfs")
     system("/usr/bin/yum -y install xfsprogs")
   end
   MU::Master.disk("/dev/xvdj", "/opt_tmp", 30)
@@ -260,7 +260,7 @@ if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
   system("/bin/mount -a")
   exit 1 if $?.exitstatus != 0
-  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+  if File.exist?("/opt/opscode/bin/chef-server-ctl")
     system("/opt/opscode/bin/chef-server-ctl start")
   end
   Dir.chdir(wd)

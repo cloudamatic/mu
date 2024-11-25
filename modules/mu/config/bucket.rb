@@ -85,7 +85,7 @@ module MU
 
         if bucket['upload']
           bucket['upload'].each { |batch|
-            if !File.exists?(batch['source'])
+            if !File.exist?(batch['source'])
               MU.log "Bucket '#{bucket['name']}' specifies upload for file/directory that does not exist", MU::ERR, details: batch
               ok = false
               next

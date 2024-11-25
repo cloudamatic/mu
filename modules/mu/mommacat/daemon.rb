@@ -315,7 +315,7 @@ module MU
         return 0
       end
     
-      File.unlink(daemonPidFile) if File.exists?(daemonPidFile)
+      File.unlink(daemonPidFile) if File.exist?(daemonPidFile)
       MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}, PID file #{daemonPidFile}"
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")

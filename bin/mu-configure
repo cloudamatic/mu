@@ -1383,7 +1383,7 @@ ssl_verify_mode :verify_none
   if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
     MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
     %x{/sbin/service iptables stop} if $INITIALIZE
-    if File.exists?("#{CHEF_CTL}")
+    if File.exist?("#{CHEF_CTL}")
       _system("#{CHEF_CTL} start")
     end
     output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
@@ -1504,7 +1504,7 @@ ssl_verify_mode :verify_none
   end
 
   begin
-    if File.exists?("#{CHEF_CTL}")
+    if File.exist?("#{CHEF_CTL}")
       _system("#{CHEF_CTL} start")
     end
     MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")

@@ -127,7 +127,7 @@ module MU
           FileUtils.mkdir_p(dir+"/vars", mode: 0700) if !Dir.exist?(dir+"/vars")
           vars_file = "#{dir}/vars/#{vault}.yml"
 
-          vars = if File.exists?(vars_file)
+          vars = if File.exist?(vars_file)
             YAML.load(File.read(vars_file))
           else
             {}
@@ -406,7 +406,7 @@ module MU
         allvars['mu_deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
 
         vaultdir = @ansible_path+"/vaults"
-        if Dir.exists?(vaultdir)
+        if Dir.exist?(vaultdir)
           Dir.entries(vaultdir).each { |v|
             next if !File.directory?(vaultdir+"/"+v)
             next if [".", ".."].include?(v)

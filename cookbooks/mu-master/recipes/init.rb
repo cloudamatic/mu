@@ -248,7 +248,7 @@ rpms = {
   "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
 }
 
-unless node['platform_family'] == "amazon" and node['platform_version'].split('.')[0] == '2023'
+unless node['platform_family'] == "amazon"
   rpms["epel-release"] = "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm"
 end
 
@@ -613,11 +613,13 @@ chef_gem "simple-password-gen" do
 end
 require "simple-password-gen"
 
-# XXX this would make an awesome library
 execute "create mu Chef user" do
   command "/opt/opscode/bin/chef-server-ctl user-create mu Mu Master root@example.com #{Password.pronounceable} -f #{MU_BASE}/var/users/mu/mu.user.key"
   umask "0277"
   not_if "/opt/opscode/bin/chef-server-ctl user-list | grep '^mu$'"
+  if !File.exist?("/etc/opscode/pivotal.rb")
+    notifies :run, "execute[reconfigure Chef server]", :immediately
+  end
   notifies :start, "service[chef-server]", :before
 end
 execute "create mu Chef org" do
