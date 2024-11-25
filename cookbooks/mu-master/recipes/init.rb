@@ -229,7 +229,13 @@ when 'amazon'
   when '2'
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services'])
     removepackages = ['nagios', 'firewalld']
-    elversion = '7' #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
+    elversion = '7'
+
+  when '2023'
+    basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat'])
+    basepackages.delete('curl')
+    removepackages = ['nagios', 'firewalld']
+    elversion = '7'
 
   else
     raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0]})"
@@ -239,19 +245,27 @@ else
 end
 
 rpms = {
-  "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
   "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
 }
 
-#rpms["ruby27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.7.2-1.el#{elversion}.x86_64.rpm"
-rpms["ruby27"] = "/root/rpmbuild/RPMS/x86_64/muby-3.3.5-1.el#{elversion}.x86_64.rpm"
-if elversion.to_i == 6
-  rpms["openssl"] = "https://s3.amazonaws.com/cloudamatic/mussl-1.1.1h-1.el6.x86_64.rpm"
-  rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
+unless node['platform_family'] == "amazon" and node['platform_version'].split('.')[0] == '2023'
+  rpms["epel-release"] = "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm"
 end
-if elversion.to_i == 7
-  rpms["mugit"] = "https://s3.amazonaws.com/cloudamatic/mugit-2.30.0-1.el7.x86_64.rpm"
+
+shorthand = "el"
+shorthand = "amzn" if node['platform_family'] == "amazon"
+
+rpms["ruby33"] = "https://s3.amazonaws.com/icras-ruby/muby-3.3.5-1.#{shorthand}#{node['platform_version'].split('.')[0]}.x86_64.rpm"
+unless node['platform_family'] == "amazon"
+  if elversion.to_i == 6
+    rpms["openssl"] = "https://s3.amazonaws.com/cloudamatic/mussl-1.1.1h-1.el6.x86_64.rpm"
+    rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
+  end
+  if elversion.to_i == 7
+    rpms["mugit"] = "https://s3.amazonaws.com/cloudamatic/mugit-2.30.0-1.el7.x86_64.rpm"
+  end
 end
+
 # this takes up a huge amount of space, save it until we're fully operational
 if !RUNNING_STANDALONE
   rpms["python38"] = "https://s3.amazonaws.com/cloudamatic/muthon-3.8.3-1.el#{elversion}.x86_64.rpm"

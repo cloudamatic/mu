@@ -11,6 +11,8 @@ Source: https://cache.ruby-lang.org/pub/ruby/3.3/ruby-%{version}.tar.gz
 
 BuildRequires: zlib
 BuildRequires: zlib-devel
+BuildRequires: libyaml
+BuildRequires: libyaml-devel
 BuildRequires: openssl
 
 %description
