@@ -232,7 +232,7 @@ when 'amazon'
     elversion = '7'
 
   when '2023'
-    basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat'])
+    basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat', 'ruby'])
     basepackages.delete('curl')
     removepackages = ['nagios', 'firewalld']
     elversion = '7'
@@ -396,6 +396,12 @@ rpms.each_pair { |pkg, src|
 execute "/sbin/ldconfig" do
   action :nothing
 end
+
+["/opt/rubies/ruby-3.3.5/lib/pkgconfig/ruby-3.3.pc", "/opt/rubies/ruby-3.3.5/lib/ruby/3.3.0/x86_64-linux/rbconfig.rb"].each { |f|
+  execute "scrub rpmbuild cruft from #{f}" do
+    command "sed -i 's/-Wl,-dT,\\/root\\/rpmbuild\\/BUILD\\/.package_note-muby-3.3.5-1.amzn2023.x86_64.ld//' #{f}"
+  end
+}
 
 file "/etc/ld.so.conf.d/muby.conf" do
   content "/usr/local/ruby-current/lib\n"
@@ -595,14 +601,14 @@ end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
-execute "knife ssl fetch" do
+execute "env -i knife ssl fetch" do
   action :nothing
 end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
   notifies :stop, "service[iptables]", :before
-  notifies :run, "execute[knife ssl fetch]", :before
+  notifies :run, "execute[env -i knife ssl fetch]", :before
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
   end
