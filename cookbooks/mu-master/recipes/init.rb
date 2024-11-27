@@ -287,7 +287,7 @@ bash "set git default branch to #{MU_BRANCH}" do
   action :nothing
 end
 git "#{MU_BASE}/lib" do
-  repository "git://github.com/cloudamatic/mu.git"
+  repository "https://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
   checkout_branch MU_BRANCH
   enable_checkout false
@@ -602,7 +602,7 @@ end
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
 execute "knife ssl fetch" do
-  command "env -i HOME=/root:PATH=/opt/chef/embedded/bin:/bin:/usr/bin /opt/chef/embedded/bin/knife ssl fetch"
+  command "env -i HOME=/root:PATH=/usr/local/ruby-current/bin:/bin:/usr/bin knife ssl fetch"
   action :nothing
 end
 execute "initial Chef artifact upload" do
