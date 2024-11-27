@@ -30,7 +30,7 @@ require 'tmpdir'
 AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 CLEAN_ENV={
-  "PATH" => "/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin:/usr/local/ruby-current/bin",
+  "PATH" => "/usr/local/ruby-current/bin:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin",
   "HOME" => HOMEDIR
 }
 CLEAN_ENV_STR = CLEAN_ENV.keys.map { |k|
@@ -49,6 +49,9 @@ GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(
 def _system(cmd)
   puts cmd.bold
   system(CLEAN_ENV, cmd)
+  if $? != 0
+    exit 1
+  end
 end
 
 $IN_GEM = false
@@ -103,30 +106,29 @@ $possible_addresses = []
 $impossible_addresses = ['127.0.0.1', 'localhost']
 begin
   sys_name = Socket.gethostname
-  official, aliases = Socket.gethostbyname(sys_name)
   $possible_addresses << sys_name
-  $possible_addresses << official
-  $possible_addresses.concat(aliases)
-rescue SocketError
-  # don't let them use the default hostname if it doesn't resolve
-  $impossible_addresses << sys_name
+
+  addrinfo = Addrinfo.ip(sys_name)
+  official = addrinfo.getnameinfo.first
+  $possible_addresses << official if official and official != sys_name
+
 end
 Socket.getifaddrs.each { |iface|
   if iface.addr and iface.addr.ipv4?
     $possible_addresses << iface.addr.ip_address
-    begin
-      addrinfo = Socket.gethostbyaddr(iface.addr.ip_address.split(/\./).map { |o| o.to_i }.pack("CCCC"))
-      $possible_addresses << addrinfo.first if !addrinfo.first.nil?
-    rescue SocketError
-      # usually no name to look up; that's ok
-    end
+    addrinfo = Addrinfo.ip(iface.addr.ip_address)
+    $possible_addresses << addrinfo.getnameinfo.first if addrinfo.getnameinfo.first
   end
 }
 
 if $IN_AWS
   ["local-ipv4", "public-ipv4"].each { |addr|
     ip = URI.open("http://169.254.169.254/latest/meta-data/#{addr}").read.chomp
-    $possible_addresses.unshift(ip) if ip and ip =~ /^\d+\.\d+\.\d+\.\d+/
+    if ip and ip =~ /^\d+\.\d+\.\d+\.\d+/
+      $possible_addresses.unshift(ip)
+      addrinfo = Addrinfo.ip(ip)
+      $possible_addresses << addrinfo.getnameinfo.first if addrinfo.getnameinfo.first
+    end
   }
 elsif $IN_GOOGLE
   ["ip", "access-configs/0/external-ip"].each { |addr|
@@ -555,16 +557,16 @@ if !$NOOP
   if AMROOT and !$IN_GEM
     Dir.chdir("/")
     if $IN_AWS
-      _system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     elsif $IN_GOOGLE
-      _system("#{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
+      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
     elsif $IN_AZURE
-      _system("#{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
+      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
     end
     exit 1 if $?.exitstatus != 0
   end
-  _system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
-  _system("cd #{MU_BASE}/lib/modules && umask 0022 && /opt/chef/embedded/bin/bundle install")
+  _system("cd #{MU_BASE}/lib/modules && umask 0022 && env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin /usr/local/ruby-current/bin/bundle install")
+  _system("cd #{MU_BASE}/lib/modules && umask 0022 && env -i PATH=/opt/chef/embedded/bin:/bin:/usr/bin /opt/chef/embedded/bin/bundle install")
 
   KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT

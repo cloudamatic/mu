@@ -17,10 +17,10 @@
 # limitations under the License.
 
 # well apparently these versions need to be pegged to whatever Chef is using
-# internally (as of Chef 17.4.38, aws-sdk-core 3.119)
+# internally (as of Chef 18.5.0, aws-sdk-core 3.171.0)
 awsgems = {
 #  "aws-sdk-core" => "~> 3.119",
-  "aws-sdk-s3" => "1.100.0",
+  "aws-sdk-core" => "3.171.0",
 #  "aws-sdk-ec2" => nil
 }
 

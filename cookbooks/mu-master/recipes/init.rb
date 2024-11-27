@@ -601,14 +601,15 @@ end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
-execute "env -i knife ssl fetch" do
+execute "knife ssl fetch" do
+  command "env -i HOME=/root:PATH=/opt/chef/embedded/bin:/bin:/usr/bin /opt/chef/embedded/bin/knife ssl fetch"
   action :nothing
 end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
   notifies :stop, "service[iptables]", :before
-  notifies :run, "execute[env -i knife ssl fetch]", :before
+  notifies :run, "execute[knife ssl fetch]", :before
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
   end

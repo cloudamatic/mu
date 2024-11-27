@@ -17,10 +17,10 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.6.2'
-  s.date        = '2024-09-03'
+  s.version     = '3.6.5'
+  s.date        = '2024-11-27'
   s.require_paths = ['modules']
-  s.required_ruby_version = '>= 2.4'
+  s.required_ruby_version = '>= 3.3'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
   s.description = <<-EOF
 The eGTLabs Mu toolkit for unified cloud deployments. This gem contains the Mu deployment interface to cloud provider APIs. It will generate a sample configuration the first time it is invoked.
@@ -38,8 +38,12 @@ EOF
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable'#, '~> 2.5'
-#  s.add_runtime_dependency "aws-sdk-core", "< 3.132" # need to pin this so Chef doesn't twist itself in knots
-  s.add_runtime_dependency "aws-sdk", "~> 3"
+
+  # We have to pin the AWS SDK to whatever version Chef bundles otherwise it
+  # loses its entire mind during dependency resolution
+  s.add_runtime_dependency "aws-sdk-core", "~> 3.171.0"
+  s.add_runtime_dependency "aws-sdk"
+
 #  s.add_runtime_dependency 'azure_sdk', '~> 0.65'
   s.add_runtime_dependency 'bundler'#, "~> 2.2"
   s.add_runtime_dependency 'chronic_duration'#, "~> 0.10"
