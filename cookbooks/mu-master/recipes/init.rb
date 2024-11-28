@@ -23,6 +23,7 @@
 # templates.
 
 chef_gem "aws-sigv4"
+chef_gem "mu"
 
 require 'etc'
 require 'open-uri'
@@ -40,6 +41,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 CHEF_SERVER_VERSION="14.11.31-1"
 CHEF_CLIENT_VERSION="18.5.0"
 KNIFE_WINDOWS="1.9.0"
+KNIFE="env -i HOME=/root PATH=/usr/local/ruby-current/bin:/bin:/usr/bin knife" # it's separate from Chef now, we get it as a gem
 MU_BASE="/opt/mu"
 
 MU_BRANCH = if ENV.key?('MU_BRANCH')
@@ -71,6 +73,7 @@ else
     ignore_failure true # the service restart often fails to leave sshd alive
   end
 end
+
 RUNNING_STANDALONE=node['application_attributes'].nil?
 
 service "iptables" do
@@ -537,7 +540,7 @@ else
   "#{MU_BASE}/lib/modules"
 end
 
-rubies = ["/usr/local/ruby-current", "/opt/chef/embedded"]
+rubies = ["/usr/local/ruby-current"]
 
 rubies.each { |rubydir|
   gembin = rubydir+"/bin/gem"
@@ -602,18 +605,18 @@ end
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
 execute "knife ssl fetch" do
-  command "env -i HOME=/root:PATH=/usr/local/ruby-current/bin:/bin:/usr/bin knife ssl fetch"
-  action :nothing
+  command "#{KNIFE} ssl fetch"
+  not_if "#{KNIFE} ssl check"
 end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
-  action :nothing
+#  action :nothing
   notifies :stop, "service[iptables]", :before
-  notifies :run, "execute[knife ssl fetch]", :before
   if !RUNNING_STANDALONE
     notifies :start, "service[iptables]", :immediately
   end
   only_if { RUNNING_STANDALONE }
+  not_if "#{KNIFE} cookbook show mu-master"
 end
 chef_gem "simple-password-gen" do
   compile_time true
@@ -711,15 +714,21 @@ end
 
 knife_cfg = "-c /root/.chef/knife.rb"
 
+execute "reinit MU-MASTER Chef client" do
+  command "#{KNIFE} node delete MU-MASTER ; #{KNIFE} client delete MU-MASTER"
+  not_if { File.exists?("/etc/chef/validation.pem") }
+  only_if "#{KNIFE} node #{knife_cfg} list | grep '^MU-MASTER$'"
+end
+
 execute "create MU-MASTER Chef client" do
 # XXX I dislike --ssh-verify-host-key=never intensely, but the CLI-documented 'accept_new' doesn't actually work
   if SSH_USER == "root"
-    command "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
+    command "#{KNIFE} bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never 127.0.0.1"
   else
-    command "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
+    command "#{KNIFE} bootstrap #{knife_cfg} -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -U #{SSH_USER} --ssh-identity-file=/root/.ssh/id_rsa --ssh-verify-host-key=never --sudo 127.0.0.1"
   end
-  only_if "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
-  not_if "PATH='/opt/chef/bin:/opt/chef/embedded/bin' knife node #{knife_cfg} list | grep '^MU-MASTER$'"
+  only_if "#{KNIFE} node #{knife_cfg} list" # don't do crazy stuff just because knife isn't working
+  not_if "#{KNIFE} node #{knife_cfg} list | grep '^MU-MASTER$'"
   notifies :run, "execute[add localhost key to authorized_keys]", :before
   notifies :delete, "file[/etc/chef/client.rb]", :before
   notifies :delete, "file[/etc/chef/client.pem]", :before

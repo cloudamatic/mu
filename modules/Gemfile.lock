@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.6.5)
+    cloud-mu (3.6.6)
       addressable
       aws-sdk (~> 3.2)
       aws-sdk-core (~> 3.214.0)
@@ -1756,6 +1756,7 @@ GEM
     diff-lcs (1.5.1)
     domain_name (0.6.20240107)
     drb (2.2.1)
+    ed25519 (1.3.0)
     erubi (1.13.0)
     erubis (2.7.0)
     eventmachine (1.2.7)
@@ -2167,12 +2168,13 @@ PLATFORMS
 
 DEPENDENCIES
   archive-tar-minitar
-  aws-sigv4
+  bcrypt_pbkdf (>= 1.0, < 2.0)
   berkshelf (= 8.0.9)
   chef (~> 18.5.0)
   chef-sugar
   chef-vault (~> 3.4)
   cloud-mu!
+  ed25519 (>= 1.2, < 2.0)
   ffi-libarchive
   foodcritic (~> 14.1.0)
   knife (~> 18.5.0)

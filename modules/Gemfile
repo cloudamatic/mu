@@ -26,4 +26,6 @@ gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :b
 gem 'foodcritic', '~> 14.1.0'
 gem 'chef', '~> 18.5.0'
 gem 'knife', '~> 18.5.0'
-gem 'aws-sigv4'
+gem 'ed25519', '>= 1.2', '< 2.0'
+gem 'bcrypt_pbkdf', '>= 1.0', '< 2.0'
+
