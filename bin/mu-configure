@@ -37,7 +37,7 @@ CLEAN_ENV_STR = CLEAN_ENV.keys.map { |k|
   k+"=\""+CLEAN_ENV[k]+"\""
 }.join(" ")
 CHEF_CLIENT="/opt/chef/bin/chef-client"
-CHEF_CTL="/opt/opscode/bin/chef-server-ctl"
+CHEF_CTL="env -i PATH=/opt/opscode/bin:/usr/bin:/bin chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
 
@@ -554,19 +554,18 @@ if !$NOOP
   end
 
 
+  _system("cd #{MU_BASE}/lib/modules && umask 0022 && bundle install")
   if AMROOT and !$IN_GEM
     Dir.chdir("/")
     if $IN_AWS
-      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+      _system("cd #{MU_BASE}/lib/modules && bundle exec #{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
     elsif $IN_GOOGLE
-      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
+      _system("cd #{MU_BASE}/lib/modules && bundle exec #{MU_BASE}/lib/bin/mu-gcp-setup --optdisk")
     elsif $IN_AZURE
-      _system("env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin #{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
+      _system("cd #{MU_BASE}/lib/modules && bundle exec #{MU_BASE}/lib/bin/mu-azure-setup --optdisk")
     end
     exit 1 if $?.exitstatus != 0
   end
-  _system("cd #{MU_BASE}/lib/modules && umask 0022 && env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin /usr/local/ruby-current/bin/bundle install")
-  _system("cd #{MU_BASE}/lib/modules && umask 0022 && env -i PATH=/opt/chef/embedded/bin:/bin:/usr/bin /opt/chef/embedded/bin/bundle install")
 
   KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT

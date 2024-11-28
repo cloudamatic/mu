@@ -594,7 +594,7 @@ rubies.each { |rubydir|
 
 # This is mostly to make sure Berkshelf has a clean and current environment to
 # live with.
-execute "/usr/local/ruby-current/bin/bundle clean --force" do
+execute "env -i PATH=/usr/local/ruby-current/bin:/bin:/usr/bin bundle clean --force" do
   cwd gemfile_dir
   only_if { RUNNING_STANDALONE }
 end

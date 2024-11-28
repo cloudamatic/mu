@@ -17,7 +17,7 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.6.5'
+  s.version     = '3.6.6'
   s.date        = '2024-11-27'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 3.3'
@@ -41,8 +41,8 @@ EOF
 
   # We have to pin the AWS SDK to whatever version Chef bundles otherwise it
   # loses its entire mind during dependency resolution
-  s.add_runtime_dependency "aws-sdk-core", "~> 3.171.0"
-  s.add_runtime_dependency "aws-sdk"
+  s.add_runtime_dependency "aws-sdk-core", "~> 3.214.0"
+  s.add_runtime_dependency "aws-sdk", "~> 3.2"
 
 #  s.add_runtime_dependency 'azure_sdk', '~> 0.65'
   s.add_runtime_dependency 'bundler'#, "~> 2.2"
