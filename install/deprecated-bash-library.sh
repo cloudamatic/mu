@@ -145,7 +145,7 @@ if [ "$library" != "1" ];then
   done
 else
   set +e
-  set +x
+#  set +x
 fi
 
 umask 0077
@@ -249,7 +249,7 @@ if [ "$IN_AWS" == "1" ];then
     LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
   fi
   for mac in `$GET_METADATA/meta-data/network/interfaces/macs/`;do
-    vpc_id="`$GET_METADATA/meta-data/network/interfaces/macs/$mac/vpc-id | egrep '^vpc\-'`"
+    vpc_id="`$GET_METADATA/meta-data/network/interfaces/macs/$mac/vpc-id | egrep '^vpc-'`"
     if [ "$vpc_id" != "" ];then
       MY_VPC_ID=$vpc_id
       break

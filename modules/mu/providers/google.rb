@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'googleauth'
 require "net/http"
 require 'net/https'
 require 'multi_json'
@@ -529,6 +528,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # for consumption by the various GCP APIs.
       # @param scopes [Array<String>]: One or more scopes for which to authorizer the caller. Will vary depending on the API you're calling.
       def self.loadCredentials(scopes = nil, credentials: nil)
+        require 'googleauth'
         if @@authorizers[credentials] and @@authorizers[credentials][scopes.to_s]
           return @@authorizers[credentials][scopes.to_s]
         end

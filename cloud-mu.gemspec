@@ -17,10 +17,10 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.6.6'
-  s.date        = '2024-11-27'
+  s.version     = '3.6.10'
+  s.date        = '2024-11-28'
   s.require_paths = ['modules']
-  s.required_ruby_version = '>= 3.3'
+  s.required_ruby_version = '>= 3'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
   s.description = <<-EOF
 The eGTLabs Mu toolkit for unified cloud deployments. This gem contains the Mu deployment interface to cloud provider APIs. It will generate a sample configuration the first time it is invoked.
@@ -39,20 +39,12 @@ EOF
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable'#, '~> 2.5'
 
-  # We have to pin the AWS SDK to whatever version Chef bundles otherwise it
-  # loses its entire mind during dependency resolution
-  s.add_runtime_dependency "aws-sdk-core", "~> 3.214.0"
-  s.add_runtime_dependency "aws-sdk", "~> 3.2"
-
-#  s.add_runtime_dependency 'azure_sdk', '~> 0.65'
   s.add_runtime_dependency 'bundler'#, "~> 2.2"
   s.add_runtime_dependency 'chronic_duration'#, "~> 0.10"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'erubis'#, "~> 2.7"
   s.add_runtime_dependency 'faraday-multipart', "<= 1.0.4"
-  s.add_runtime_dependency 'google-api-client', "~> 0.53.0"
-  s.add_runtime_dependency 'googleauth', "~> 1.2.0"
   s.add_runtime_dependency 'inifile', "~> 3.0"
   s.add_runtime_dependency 'json-schema', "~> 2.8"
   s.add_runtime_dependency 'net-ldap'#, "~> 0.16"
@@ -72,4 +64,6 @@ EOF
   s.add_runtime_dependency 'thin'#, "~> 1.7"
   s.add_runtime_dependency 'winrm', "~> 2.3", ">= 2.3.4"
   s.add_runtime_dependency 'yard'#, "~> 0.9"
+
+  s.post_install_message = "If you're running a gem-only installation, cloud provider gems must be installed separately.\n\nAWS: aws-sdk-core aws-sdk\n\nGCP: google-api-client googleauth"
 end

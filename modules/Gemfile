@@ -29,3 +29,9 @@ gem 'knife', '~> 18.5.0'
 gem 'ed25519', '>= 1.2', '< 2.0'
 gem 'bcrypt_pbkdf', '>= 1.0', '< 2.0'
 
+
+gem "aws-sdk-core", "~> 3.214.0"
+gem "aws-sdk", "~> 3.2"
+gem 'google-api-client', "~> 0.53.0"
+gem 'googleauth', "~> 1.2.0"
+#  s.add_runtime_dependency 'azure_sdk', '~> 0.65'

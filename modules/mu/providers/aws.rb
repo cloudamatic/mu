@@ -1645,21 +1645,23 @@ MU.log "Fetch of http://169.254.169.254/latest/meta-data/instance-id took #{spri
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
           # make sure error symbols are loaded for our exception handling later
-          require "aws-sdk-lambda"
-          require "aws-sdk-rds"
           require "aws-sdk-ec2"
-          require "aws-sdk-route53"
-          require "aws-sdk-iam"
-          require "aws-sdk-efs"
-          require "aws-sdk-pricing"
-          require "aws-sdk-apigateway"
-          require "aws-sdk-ecs"
-          require "aws-sdk-eks"
-          require "aws-sdk-cloudwatchlogs"
-          require "aws-sdk-cloudwatchevents"
-          require "aws-sdk-elasticloadbalancing"
-          require "aws-sdk-elasticloadbalancingv2"
-          require "aws-sdk-autoscaling"
+          if @api_name != "EC2"
+            require "aws-sdk-lambda"
+            require "aws-sdk-rds"
+            require "aws-sdk-route53"
+            require "aws-sdk-iam"
+            require "aws-sdk-efs"
+            require "aws-sdk-pricing"
+            require "aws-sdk-apigateway"
+            require "aws-sdk-ecs"
+            require "aws-sdk-eks"
+            require "aws-sdk-cloudwatchlogs"
+            require "aws-sdk-cloudwatchevents"
+            require "aws-sdk-elasticloadbalancing"
+            require "aws-sdk-elasticloadbalancingv2"
+            require "aws-sdk-autoscaling"
+          end
 
           known_concats = {
             "Pricing" => {

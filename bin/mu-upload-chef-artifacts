@@ -50,6 +50,7 @@ real_datadir="$MU_DATADIR"
 
 
 source $MU_INSTALLDIR/lib/install/deprecated-bash-library.sh
+
 # Chef can't pick a lane
 export PATH="/usr/local/ruby-current/bin:/usr/bin:/bin"
 
@@ -595,8 +596,6 @@ for repo in $REPOS;do
     add_berkshelf_cookbooks "$artifact_source"
   fi
 
-  set +x
-  
   if [ -d "$artifact_source/.git" ];then
     if [ "$use_on_disk" == "" ];then
       if [ "$branch" != "$lastbranch" -a "$discard" != "1" ];then

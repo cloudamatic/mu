@@ -23,7 +23,36 @@
 # templates.
 
 chef_gem "aws-sigv4"
-chef_gem "mu"
+
+chef_gem "cloud-mu" do
+  gem_binary "/opt/chef/embedded/bin/gem"
+  compile_time true
+  action :install
+end
+
+CHEF_SERVER_VERSION="14.11.31-1"
+CHEF_CLIENT_VERSION="18.5.0"
+
+# The versions of these must not bring in a newer version of aws-sdk-core
+# than whatever Chef prefers (aws-sdk-core 3.171.0 as of Chef 18.5.0,
+# roughly spring of 2023)
+awsgems = {
+  "aws-sdk-ec2" => "1.380.0",
+#  "aws-sdk-lambda" => "1.96.0",
+#  "aws-sdk-rds" => "1.179.0",
+#  "aws-sdk-route53" => "1.71.0",
+#  "aws-sdk-efs" => "1.60.0",
+#  "aws-sdk-iam" => "1.77.0"
+}
+
+awsgems.each_pair { |g, v|
+  chef_gem g do
+    gem_binary "/opt/chef/embedded/bin/gem"
+    version v
+    compile_time true
+    action :install
+  end
+}
 
 require 'etc'
 require 'open-uri'
@@ -38,8 +67,6 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
-CHEF_SERVER_VERSION="14.11.31-1"
-CHEF_CLIENT_VERSION="18.5.0"
 KNIFE_WINDOWS="1.9.0"
 KNIFE="env -i HOME=/root PATH=/usr/local/ruby-current/bin:/bin:/usr/bin knife" # it's separate from Chef now, we get it as a gem
 MU_BASE="/opt/mu"

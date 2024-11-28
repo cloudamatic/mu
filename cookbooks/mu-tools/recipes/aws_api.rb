@@ -36,7 +36,7 @@ awsgems.each_pair { |g, v|
     gem_binary "/opt/chef/embedded/bin/gem"
     version v if !v.nil?
     compile_time true
-   action :install
+    action :install
   end
 }
 

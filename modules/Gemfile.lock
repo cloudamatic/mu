@@ -10,18 +10,14 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.6.6)
+    cloud-mu (3.6.9)
       addressable
-      aws-sdk (~> 3.2)
-      aws-sdk-core (~> 3.214.0)
       bundler
       chronic_duration
       color (~> 1.8)
       colorize (~> 0.8)
       erubis
       faraday-multipart (<= 1.0.4)
-      google-api-client (~> 0.53.0)
-      googleauth (~> 1.2.0)
       inifile (~> 3.0)
       json-schema (~> 2.8)
       net-ldap
@@ -2168,6 +2164,8 @@ PLATFORMS
 
 DEPENDENCIES
   archive-tar-minitar
+  aws-sdk (~> 3.2)
+  aws-sdk-core (~> 3.214.0)
   bcrypt_pbkdf (>= 1.0, < 2.0)
   berkshelf (= 8.0.9)
   chef (~> 18.5.0)
@@ -2177,6 +2175,8 @@ DEPENDENCIES
   ed25519 (>= 1.2, < 2.0)
   ffi-libarchive
   foodcritic (~> 14.1.0)
+  google-api-client (~> 0.53.0)
+  googleauth (~> 1.2.0)
   knife (~> 18.5.0)
   knife-windows!
   mysql2 (<= 0.5.2)
