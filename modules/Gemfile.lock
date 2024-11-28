@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.6.9)
+    cloud-mu (3.6.10)
       addressable
       bundler
       chronic_duration

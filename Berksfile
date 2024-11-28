@@ -12,7 +12,7 @@ cookbook 'mu-mongo'
 cookbook 'mu-openvpn'
 cookbook 'mu-tools'
 cookbook 'mu-utility'
-cookbook 'nagios', '~> 11.2.2'
+cookbook 'nagios', '~> 12.1.1'
 #cookbook 'mu-nagios' , '~> 8.2.0', git: "https://github.com/cloudamatic/mu-nagios.git"
 cookbook 'firewall', path: 'cookbooks/firewall'
 cookbook 'chocolatey'

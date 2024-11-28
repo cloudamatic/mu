@@ -39,6 +39,7 @@ CLEAN_ENV_STR = CLEAN_ENV.keys.map { |k|
 CHEF_CLIENT="/opt/chef/bin/chef-client"
 CHEF_CTL="env -i PATH=/opt/opscode/bin:/usr/bin:/bin chef-server-ctl"
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+ENV['CHEF_LICENSE'] = "accept"
 
 
 #def _x(cmd)

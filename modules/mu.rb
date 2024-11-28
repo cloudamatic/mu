@@ -904,6 +904,7 @@ module MU
       return struct
     end
 
+puts aws_struct
     azure_struct = false
     begin
       azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)

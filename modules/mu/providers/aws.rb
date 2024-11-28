@@ -1700,12 +1700,17 @@ MU.log "Fetch of http://169.254.169.254/latest/meta-data/instance-id took #{spri
 
               if paginator and new_page and !new_page.empty?
                 resp = retval.respond_to?(:__getobj__) ? retval.__getobj__ : retval
-                concat_to = MU.structToHash(resp).keys.reject { |m|
-                  m.to_s.match(/=$/) or m == paginator or resp.send(m).nil? or !resp.send(m).is_a?(Array)
-                }
+                # This one specific API has the dain bramage
+                if resp.class.name != "Aws::Pricing::Types::GetProductsResponse"
+                  concat_to = MU.structToHash(resp).keys.reject { |m|
+                    m.to_s.match(/=$/) or m == paginator or resp.send(m).nil? or !resp.send(m).is_a?(Array)
+                  }
+                end
 
-                if concat_to.empty? and known_concats[@api_name] and
+                if (concat_to.nil? or concat_to.empty?) and
+                   known_concats[@api_name] and
                    known_concats[@api_name][method_sym]
+                  concat_to ||= []
                   concat_to << known_concats[@api_name][method_sym]
                 end
 
