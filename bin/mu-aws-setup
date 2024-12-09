@@ -167,11 +167,23 @@ if $opts[:sg]
   if !admin_sg.nil?
     MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
     open_ports.each { |port|
-      admin_sg.addRule(ranges, port: port, comment: "Mu Master service access")
+      begin
+        admin_sg.addRule(ranges, port: port, comment: "Mu Master service access")
+      rescue Aws::EC2::Errors::InvalidPermissionDuplicate
+      end
     }
-    admin_sg.addRule(["#{preferred_ip}/32"], port: 22, comment: "Mu Master service access")
-    admin_sg.addRule(["0.0.0.0/0"], port: 80, comment: "Mu Master service access")
-    admin_sg.addRule([admin_sg.cloud_id], comment: "Mu Master service access")
+    begin
+      admin_sg.addRule(["#{preferred_ip}/32"], port: 22, comment: "Mu Master service access")
+    rescue Aws::EC2::Errors::InvalidPermissionDuplicate
+    end
+    begin
+      admin_sg.addRule(["0.0.0.0/0"], port: 80, comment: "Mu Master service access")
+    rescue Aws::EC2::Errors::InvalidPermissionDuplicate
+    end
+    begin
+      admin_sg.addRule([admin_sg.cloud_id], comment: "Mu Master service access")
+    rescue Aws::EC2::Errors::InvalidPermissionDuplicate
+    end
   else
     cfg = {
       "name" => "Mu Master",

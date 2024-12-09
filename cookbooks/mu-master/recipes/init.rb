@@ -262,7 +262,7 @@ when 'amazon'
     elversion = '7'
 
   when '2023'
-    basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat', 'ruby'])
+    basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat', 'ruby', 'nspr-devel', 'nss-devel >= 3.34', 'openldap-clients', 'openldap-devel', 'lmdb-devel', 'cyrus-sasl-devel', 'icu', 'libicu-devel', 'pcre2-devel', 'cracklib-devel', 'json-c-devel', 'libatomic', 'clang', 'compiler-rt', 'lld', 'gcc', 'gcc-c++', 'libasan', 'libtsan', 'libubsan', 'libdb-devel', 'net-snmp-devel', 'bzip2-devel', 'openssl-devel', 'pam-devel', 'systemd-units', 'systemd-devel', 'pkgconfig', 'krb5-devel', 'autoconf', 'automake', 'libtool', 'doxygen', 'libcmocka-devel', 'python3', 'python3-devel', 'python3-setuptools', 'python3-ldap', 'python3-pyasn1', 'python3-pyasn1-modules', 'python3-dateutil', 'python3-argcomplete', 'python3-policycoreutils', 'python3-libselinux', 'python3-cryptography', 'rsync', 'python3-pip'])
     basepackages.delete('curl')
     removepackages = ['nagios', 'firewalld']
     elversion = '7'
@@ -793,6 +793,39 @@ end
 # https://github.com/chef/chef-server/issues/3109#issuecomment-1022084825
 execute "ensure Chef indexes aren't read-only" do
   command %Q{curl -XPUT -H "Content-Type: application/json" http://127.0.0.1:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'}
+end
+
+if node['platform_family'] == "amazon" and node['platform_version'].split('.')[0] == "2023"
+  execute "install python's argparse-manpage" do
+    command "/usr/bin/pip3 install argparse-manpage"
+    not_if { File.exist?("/usr/local/bin/argparse-manpage") }
+  end
+
+  execute "fetch Rust installer" do
+    command "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > /root/rust-install.sh && chmod 700 /root/rust-install.sh"
+    action :nothing
+  end
+
+  execute "install Rust for root only" do
+    command "/root/rust-install.sh -y"
+    notifies :run, "execute[fetch Rust installer]", :before
+    not_if { File.exist?("/root/.cargo/bin/rustc") }
+  end
+
+  execute "fetch NodeJS repo installer" do
+    command "curl -fsSL https://rpm.nodesource.com/setup_23.x -o /root/nodesource_setup.sh"
+    action :nothing
+  end
+
+  execute "enable NodeJS repo" do
+    command "sh /root/nodesource_setup.sh"
+    action :nothing
+  end
+
+  package "nodejs" do
+    notifies :run, "execute[enable NodeJS repo]", :before
+    action :install
+  end
 end
 
 directory TMPDIR do

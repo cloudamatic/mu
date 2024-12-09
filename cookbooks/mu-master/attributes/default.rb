@@ -25,7 +25,6 @@ default["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
 default['apache']['user'] = "apache"
 default['apache']['group'] = "apache"
 
-
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
 

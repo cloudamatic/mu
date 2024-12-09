@@ -18,7 +18,41 @@
 
 include_recipe 'mu-master::firewall-holes'
 
-package ["389-ds", "389-ds-console"]
+# We had to hand-roll 389DS packages for Amazon 2023. It was ludicrious.
+if node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023
+  base_url = "https://s3.amazonaws.com/icras-ruby/"
+
+  # Mozilla's ancient LDAP library. We don't actually run code out of it, but
+  # a bunch of the supporting tools for 389DS insist on linking to it.
+  pkgs = ["mozldap-6.0.7-1.amzn2023.x86_64.rpm", "mozldap-devel-6.0.7-1.amzn2023.x86_64.rpm", "mozldap-tools-6.0.7-1.amzn2023.x86_64.rpm"]
+  execute "install legacy Mozilla LDAP library" do
+    command "rpm -ivh #{pkgs.map { |p| base_url+p }.join(' ')}"
+    not_if "rpm -q mozldap mozldap-devel mozldap-tools"
+  end
+  link "/usr/local/mozldap/lib" do
+    to "/usr/local/mozldap/lib64"
+  end
+
+  # Prereqs for 389-admin, including miscellaneous difficult-to-source Perl modules
+  package ["cyrus-sasl-gssapi", "cyrus-sasl-md5", "nss-tools", "perl-Archive-Tar", "perl-DB_File", "perl-debugger", "perl-sigtrap", "openssl-perl", "python3-pytest", "perl-FileHandle", "perl-Log-Log4perl", "perl-LDAP"]
+
+  version = "3.1.1"
+  pkgs = ["389-ds-base-libs-#{version}-icrasmu.x86_64.rpm", "389-ds-base-3.1.1-icrasmu.x86_64.rpm", "python3-lib389-#{version}-icrasmu.noarch.rpm", "389-ds-base-devel-#{version}-icrasmu.x86_64.rpm"]
+  # XXX These RPMs will conflict with themselves if they try to install twice. They are very stupid.
+  execute "install 389DS packages" do
+    command "rpm -ivh #{pkgs.map { |p| base_url+p }.join(' ')}"
+    not_if "rpm -q 389-ds-base 389-ds-base-libs python3-lib389 389-ds-base-devel"
+  end
+
+  pkgs = ["389-adminutil-devel-1.1.23-1.amzn2023.x86_64.rpm", "389-adminutil-1.1.23-1.amzn2023.x86_64.rpm"]
+  execute "install 389DS adminutil packages" do
+    command "rpm -ivh #{pkgs.map { |p| base_url+p }.join(' ')}"
+    not_if "rpm -q 389-adminutil 389-adminutil-devel"
+  end
+else
+  package ["389-ds", "389-ds-console"]
+end
+
 
 include_recipe 'chef-vault'
 
@@ -43,7 +77,7 @@ $CREDS = {
 
 service_name = "dirsrv"
 if node['platform_version'].to_i >= 7 || (node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2)
-  service_name = service_name + "@" + $MU_CFG["hostname"]
+  service_name = service_name + "@" + "localhost"#$MU_CFG["hostname"]
 end
 
 directory "/root/389ds.tmp" do
@@ -73,9 +107,11 @@ end
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
-  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  command "/usr/sbin/dscreate from-file /root/389ds.tmp/389-directory-setup.inf"
   action :nothing
 end
+
+confdir = "/etc/dirsrv/slapd-localhost" # "/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}"
 
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
@@ -84,7 +120,7 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
-  not_if { ::Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
+  not_if { ::Dir.exist?(confdir) }
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
 end
 
@@ -115,40 +151,30 @@ file "/root/389ds.tmp/blank" do
   content ""
   action :nothing
 end
-execute "389ds cert util" do
+execute "389ds set Mu CA" do
   if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain']
-    command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i #{$MU_CFG['ssl']['chain']}"
+    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/pin.txt -n \"Mu Master CA\" -t CT,, -a -i #{$MU_CFG['ssl']['chain']}"
   else
-    command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/pin.txt -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
   end
   action :nothing
   notifies :restart, "service[#{service_name}]", :delayed
 end
 
-# Why is this utility interactive-only? So much hate.
-ruby_block "import SSL certificates for 389ds" do
-  block do
-    certimportcmd = "/usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/389ds.tmp/blank -W \"\""
-    require 'pty'
-    require 'expect'
-    PTY.spawn(certimportcmd) { |r, w, _pid|
-      begin
-        r.expect("Enter new password:") do
-          w.puts
-        end
-        r.expect("Re-enter password:") do
-          w.puts
-        end
-      rescue Errno::EIO
-        break
-      end
-    }
-
-  end
-  notifies :create, "file[/root/389ds.tmp/blank]", :before
-  notifies :run, "execute[389ds cert util]", :immediately
+execute "remove existing Server-Cert" do
+  command "/usr/bin/certutil -D -d #{confdir} -n Server-Cert"
+  only_if "/usr/bin/certutil -L -d #{confdir} -n Server-Cert | grep CN=ssca.389ds.example.com" # XXX make this look for any mismatch with the correct one
 end
 
+# XXX the below might also need a certutil import to Server-Cert, unclear
+
+execute "389ds set Mu server certificate" do
+  command "PW=\"`cat #{confdir}/pin.txt | cut -d: -f 2`\" /usr/bin/pk12util -d #{confdir} -i /opt/mu/var/ssl/ldap.p12 -W \"\" -K ${PW}"
+#  action :nothing
+  #  not_if
+  notifies :restart, "service[#{service_name}]", :delayed
+  notifies :run, "execute[389ds set Mu CA]", :before
+end
 
 {"ssl_enable.ldif" => "nsslapd-security: on", "addRSA.ldif" => "nsSSLActivation: on"}.each_pair { |ldif, guardstr|
   cookbook_file "/root/389ds.tmp/#{ldif}" do
@@ -157,7 +183,7 @@ end
 
   execute "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f /root/389ds.tmp/#{ldif}" do
     notifies :restart, "service[#{service_name}]", :delayed
-    not_if "grep '#{guardstr}' /etc/dirsrv/slapd-#{$MU_CFG['hostname']}/dse.ldif"
+    not_if "grep '#{guardstr}' #{confdir}/dse.ldif"
   end
 }
 
