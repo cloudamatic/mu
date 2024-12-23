@@ -164,7 +164,7 @@ include_recipe "mu-master::update_nagios_only" if !$MU_CFG['disable_nagios']
 
 if !node['update_nagios_only']
   if !$MU_CFG['disable_nagios']
-    package %w(nagios-plugins-breeze nagios-plugins-by_ssh nagios-plugins-cluster nagios-plugins-dhcp nagios-plugins-dig nagios-plugins-disk nagios-plugins-disk_smb nagios-plugins-dns nagios-plugins-dummy nagios-plugins-file_age nagios-plugins-flexlm nagios-plugins-fping nagios-plugins-game nagios-plugins-hpjd nagios-plugins-http nagios-plugins-icmp nagios-plugins-ide_smart nagios-plugins-ircd nagios-plugins-ldap nagios-plugins-load nagios-plugins-log nagios-plugins-mailq nagios-plugins-mrtg nagios-plugins-mrtgtraf nagios-plugins-nagios nagios-plugins-nt nagios-plugins-ntp nagios-plugins-ntp-perl nagios-plugins-nwstat nagios-plugins-oracle nagios-plugins-overcr nagios-plugins-pgsql nagios-plugins-ping nagios-plugins-procs nagios-plugins-real nagios-plugins-rpc nagios-plugins-sensors nagios-plugins-smtp nagios-plugins-snmp nagios-plugins-ssh nagios-plugins-swap nagios-plugins-tcp nagios-plugins-time nagios-plugins-ups nagios-plugins-users nagios-plugins-wave) do
+    package %w(nagios-plugins-breeze nagios-plugins-by_ssh nagios-plugins-cluster nagios-plugins-dhcp nagios-plugins-dig nagios-plugins-disk nagios-plugins-disk_smb nagios-plugins-dns nagios-plugins-dummy nagios-plugins-file_age nagios-plugins-flexlm nagios-plugins-fping nagios-plugins-game nagios-plugins-hpjd nagios-plugins-http nagios-plugins-icmp nagios-plugins-ide_smart nagios-plugins-ircd nagios-plugins-load nagios-plugins-log nagios-plugins-mailq nagios-plugins-mrtg nagios-plugins-mrtgtraf nagios-plugins-nagios nagios-plugins-nt nagios-plugins-ntp nagios-plugins-nwstat nagios-plugins-oracle nagios-plugins-overcr nagios-plugins-pgsql nagios-plugins-ping nagios-plugins-procs nagios-plugins-real nagios-plugins-rpc nagios-plugins-sensors nagios-plugins-smtp nagios-plugins-snmp nagios-plugins-ssh nagios-plugins-swap nagios-plugins-tcp nagios-plugins-time nagios-plugins-ups nagios-plugins-users nagios-plugins-wave) do
       action :install
     end
 
@@ -218,6 +218,14 @@ if !node['update_nagios_only']
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
+
+  directory "/etc/httpd/conf" do
+    recursive true
+    mode 0755
+  end
+
+  package ["php8.3", "php8.3-devel", "php8.3-cli", "php8.3-modphp", "php-pear"]
+
   apache2_install "" do
     docroot_dir "/var/www/html"
     modules %w{status alias auth_basic authn_core authn_file authz_core authz_groupfile authz_host authz_user autoindex deflate dir env mime negotiation setenvif log_config logio unixd systemd headers proxy proxy_http rewrite ssl ldap authnz_ldap slotmem_shm}
@@ -231,11 +239,11 @@ if !node['update_nagios_only']
   apache2_mod_cgid ""
   apache2_mod_ssl ""
 
-  link "/usr/lib64/httpd/modules/mod_php5.so" do
-    to "/usr/lib64/httpd/modules/libphp5.so"
-  end
+#  link "/usr/lib64/httpd/modules/mod_php5.so" do
+#    to "/usr/lib64/httpd/modules/libphp5.so"
+#  end
   apache2_mod "php"
-  apache2_module "php5" 
+#  apache2_module "php5" 
   apache2_module "cgi" 
   apache2_default_site "" do
     action :enable

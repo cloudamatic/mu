@@ -1,0 +1,36 @@
+#
+# Author:: Sander Botman <sbotman@schubergphilis.com>
+# Cookbook:: nagios
+# Resource:: hostescalation
+#
+# Copyright:: 2015, Sander Botman
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+property :options, [Hash, Chef::DataBagItem], default: {}
+unified_mode true
+
+action :create do
+  o = Nagios::Hostescalation.new(new_resource.name)
+  o.import(new_resource.options)
+  Nagios.instance.push(o)
+end
+
+action :delete do
+  Nagios.instance.delete('hostescalation', new_resource.name)
+end
+
+action_class do
+  require_relative '../libraries/hostescalation'
+end

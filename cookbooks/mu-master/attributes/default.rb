@@ -21,12 +21,26 @@ default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
+default['apache']['version'] = "2.4"
 default["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
 default['apache']['user'] = "apache"
 default['apache']['group'] = "apache"
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
+
+# The brain-dead Nagios cookbook configures itself with a checksum and version
+# flag for 4.1.1, then proceeds to concoct a URL for 4.4.6. Help it.
+default['nagios']['server']['source_url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.5.8.tar.gz"
+default['nagios']['server']['checksum'] = "66b73bfc148c0763a64bbf849595d818"
+default['nagios']['server']['version'] = "66b73bfc148c0763a64bbf849595d818"
+
+
+if node['platform_family'] == "amazon" and node['platform_version'].split('.')[0] == "2023"
+  default['nagios']['php_packages'] = ["php8.3", "php8.3-devel", "php8.3-cli", "php8.3-modphp", "php-pear"]
+  default['nagios']['php_gd_package'] = "php8.3-gd"
+  default['nagios']['server']['dependencies'] = ["openssl-devel", "mailx", "gd-devel", "tar", "unzip"]
+end
 
 # We use key/value tags like sensible people, but Chef expects an array and
 # flattens the whole mess out, hence the weird form here.

@@ -1,7 +1,7 @@
 Summary: Python for Mu
 BuildArch: x86_64
 Name: muthon
-Version: 3.8.3
+Version: 3.13.1
 Release: 1%{dist}
 Group: Development/Languages
 License: https://docs.python.org/3/license.html
@@ -12,9 +12,6 @@ Source: https://www.python.org/ftp/python/%{version}/Python-%{version}.tgz
 # auto-require inserts nonsensical things, like a dependency on our own
 # executable, so I guess we'll declare dependencies by package ourselves
 AutoReq: no
-# XXX these don't work for some reason
-#%global __requires_exclude ^/usr/local/bin/python$
-#%global __requires_exclude ^/opt/pythons/Python-%{version}/bin/python.*$
 
 %{?el6:BuildRequires: mussl}
 %{?el6:BuildRequires: muqlite}
@@ -63,6 +60,7 @@ env -i PATH="/bin:/usr/bin" make
 %install
 cd $RPM_BUILD_DIR/Python-%{version}
 env -i PATH="/bin:/usr/bin" make install
+sed -i 's/^#!\/usr\/bin\/env python/\/usr\/bin\/python3/' /opt/pythons/Python-3.13.1/lib/python3.13/encodings/rot_13.py
 %{prefix}/Python-%{version}/bin/python3 $RPM_SOURCE_DIR/get-pip.py --prefix %{prefix}/Python-%{version}/ || ( ldd %{prefix}/Python-%{version}/bin/python3 ; exit 1 )
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/

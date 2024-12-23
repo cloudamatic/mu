@@ -211,7 +211,9 @@ else
     end
   }
 
-  execute "/sbin/restorecon -R /var/log/nagios"
+  execute "/sbin/restorecon -R /var/log/nagios" do
+    only_if { ::Dir.exist?("/var/log/nagios") }
+  end
 
   # The Nagios cookbook currently screws up this setting, so work around it.
   execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do

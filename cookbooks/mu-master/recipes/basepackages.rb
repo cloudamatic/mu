@@ -57,6 +57,11 @@ when 'amazon'
   when 2
     basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
 
+  when 2023
+    basepackages.concat(["iptables-services"])
+    basepackages.delete("java-1.8.0-openjdk")
+    basepackages.delete("cryptsetup-luks")
+
   else
     raise "Mu does not support Amazon #{node['platform_version']}"
   end

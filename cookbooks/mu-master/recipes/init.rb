@@ -298,7 +298,7 @@ end
 
 # this takes up a huge amount of space, save it until we're fully operational
 if !RUNNING_STANDALONE
-  rpms["python38"] = "https://s3.amazonaws.com/cloudamatic/muthon-3.8.3-1.el#{elversion}.x86_64.rpm"
+  rpms["python38"] = "https://s3.amazonaws.com/icras-ruby/muthon-3.13.1-1.#{shorthand}#{node['platform_version'].split('.')[0]}.x86_64.rpm"
 end
 
 package basepackages
