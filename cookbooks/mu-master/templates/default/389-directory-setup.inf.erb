@@ -1,29 +1,9 @@
 [general] 
-instance_name = <%= @address %>
-SuiteSpotUserID= nobody 
-SuiteSpotGroup= nobody 
-AdminDomain= <%= @domain %>
-ServerRoot = /usr/lib64/dirsrv
-StrictHostCheck = false
-ConfigDirectoryAdminID= <%= @creds["cfg_directory_adm"]["user"] %> 
-ConfigDirectoryAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %> 
-ConfigDirectoryLdapURL= ldap://<%= @address %>:389/o=NetscapeRoot 
-
-[admin] 
-Port= 9830
-ServerIpAddress= 0.0.0.0
-ServerAdminID= <%= @creds["cfg_directory_adm"]["user"] %> 
-ServerAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %>
+full_machine_name = <%= @address %>
+start = True
+strict_host_checking = False
 
 [slapd] 
+instance_name = <%= @hostname %>
 root_password = <%= @creds["cfg_directory_adm"]["pw"] %>
-AddOrgEntries = Yes
-AddSampleEntries = No
-SlapdConfigForMC= Yes 
-UseExistingMC= No 
-ServerPort= 389 
-ServerIdentifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %> 
-suffix= <%= @domain_dn %>
-naming_value= <%= @domain %>
-RootDN= <%= @creds["root_dn_user"]["user"] %>
-RootDNPwd= <%= @creds["root_dn_user"]["pw"] %>
+secure_port = 636

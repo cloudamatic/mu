@@ -1244,7 +1244,7 @@ ssl_verify_mode :verify_none
         "user" => "CN=mu_join_creds,#{$MU_CFG["ldap"]['user_ou']}"
       },
       "cfg_directory_adm" => {
-        "user" => "admin"
+        "user" => "cn=Directory Manager"
       },
       "root_dn_user" => {
         "user" => "CN=root_dn_user"

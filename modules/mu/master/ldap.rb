@@ -100,7 +100,8 @@ module MU
           raise MuLDAPError, "When supply credentials to getLDAPConnection, both username and password must be specified"
         end
         if !username and !password
-          bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
+          bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: "cfg_directory_adm")#$MU_CFG["ldap"]["bind_creds"]["item"])
+          pp bind_creds
           username = bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]]
           password = bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]]
         end

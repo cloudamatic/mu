@@ -1,0 +1,4 @@
+dn: cn=RSA,cn=encryption,cn=config
+changetype: modify
+replace: nsSSLPersonalitySSL
+nsSSLPersonalitySSL: ldap

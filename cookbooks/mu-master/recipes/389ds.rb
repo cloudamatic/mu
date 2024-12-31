@@ -68,7 +68,7 @@ $CREDS = {
     "user" => "CN=mu_join_creds,#{$MU_CFG["ldap"]['user_ou']}"
   },
   "cfg_directory_adm" => {
-    "user" => "admin"
+    "user" => "cn=Directory Manager"
   },
   "root_dn_user" => {
     "user" => "CN=root_dn_user"
@@ -77,7 +77,7 @@ $CREDS = {
 
 service_name = "dirsrv"
 if node['platform_version'].to_i >= 7 || (node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2)
-  service_name = service_name + "@" + "localhost"#$MU_CFG["hostname"]
+  service_name = service_name + "@" + $MU_CFG["hostname"]
 end
 
 directory "/root/389ds.tmp" do
@@ -111,7 +111,7 @@ execute "initialize 389 Directory Services" do
   action :nothing
 end
 
-confdir = "/etc/dirsrv/slapd-localhost" # "/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}"
+confdir = "/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}"
 
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
@@ -151,37 +151,50 @@ file "/root/389ds.tmp/blank" do
   content ""
   action :nothing
 end
+
+# This is the PIN for the certificate store, not the LDAP server's root password
+execute "ensure plainpin.txt" do
+  command "cat #{confdir}/pin.txt | cut -d: -f 2 > #{confdir}/plainpin.txt"
+  not_if { File.exist?("#{confdir}/plainpin.txt") }
+end
+
+# ... the LDAP server's root password is a crypt in #{confdir}/dse.ldif, the
+# line nsslapd-rootpw. You can generate a new one with the /usr/bin/pwdhash
+# utility.
+
 execute "389ds set Mu CA" do
   if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain']
-    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/pin.txt -n \"Mu Master CA\" -t CT,, -a -i #{$MU_CFG['ssl']['chain']}"
+    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/plainpin.txt -n \"Mu Master CA\" -t CTP,C,C -a -i #{$MU_CFG['ssl']['chain']}"
   else
-    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/pin.txt -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+    command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/plainpin.txt -n \"Mu Master CA\" -t CTP,C,C -a -i /opt/mu/var/ssl/Mu_CA.pem"
   end
   action :nothing
   notifies :restart, "service[#{service_name}]", :delayed
 end
 
 execute "remove existing Server-Cert" do
-  command "/usr/bin/certutil -D -d #{confdir} -n Server-Cert"
-  only_if "/usr/bin/certutil -L -d #{confdir} -n Server-Cert | grep CN=ssca.389ds.example.com" # XXX make this look for any mismatch with the correct one
+  command "/usr/bin/certutil -D -d #{confdir} -f #{confdir}/plainpin.txt -n Server-Cert"
+  only_if "/usr/bin/certutil -L -d #{confdir} -f #{confdir}/plainpin.txt -n Server-Cert | grep CN=ssca.389ds.example.com" # XXX make this look for any mismatch with the correct one
 end
 
-# XXX the below might also need a certutil import to Server-Cert, unclear
-
-execute "389ds set Mu server certificate" do
-  command "PW=\"`cat #{confdir}/pin.txt | cut -d: -f 2`\" /usr/bin/pk12util -d #{confdir} -i /opt/mu/var/ssl/ldap.p12 -W \"\" -K ${PW}"
-#  action :nothing
-  #  not_if
+# certutil is too stupid to import a key, so we have to do this little dance with pk12util instead
+execute "389ds set Mu server key" do
+  command "PW=\"`cat #{confdir}/plainpin.txt`\" /usr/bin/pk12util -d #{confdir} -i /opt/mu/var/ssl/ldap.p12 -W \"\" -K \"`cat #{confdir}/plainpin.txt`\""
+  #  not_if # XXX be a lot cooler if we guarded this
   notifies :restart, "service[#{service_name}]", :delayed
+end
+execute "389ds set Mu server cert" do
+  command "/usr/bin/certutil -d #{confdir} -A -f #{confdir}/plainpin.txt -n ldap -t TP,, -a -i /opt/mu/var/ssl/ldap.crt"
   notifies :run, "execute[389ds set Mu CA]", :before
 end
 
-{"ssl_enable.ldif" => "nsslapd-security: on", "addRSA.ldif" => "nsSSLActivation: on"}.each_pair { |ldif, guardstr|
+#{"ssl_enable.ldif" => "nsSSL3: off", "addRSA.ldif" => "nsSSLActivation: on"}.each_pair { |ldif, guardstr|
+{"setCertName.ldif" => "nsSSLPersonalitySSL: ldap"}.each_pair { |ldif, guardstr|
   cookbook_file "/root/389ds.tmp/#{ldif}" do
     source ldif
   end
 
-  execute "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f /root/389ds.tmp/#{ldif}" do
+  execute "/usr/bin/ldapmodify -x -D \"#{$CREDS["cfg_directory_adm"]['user']}\" -w \"#{$CREDS["cfg_directory_adm"]['pw']}\" -f /root/389ds.tmp/#{ldif}" do
     notifies :restart, "service[#{service_name}]", :delayed
     not_if "grep '#{guardstr}' #{confdir}/dse.ldif"
   end
