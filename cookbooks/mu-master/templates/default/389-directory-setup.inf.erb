@@ -7,3 +7,7 @@ strict_host_checking = False
 instance_name = <%= @hostname %>
 root_password = <%= @creds["cfg_directory_adm"]["pw"] %>
 secure_port = 636
+
+[backend-userroot]
+create_suffix_entry = True
+suffix = dc="platform-mu"

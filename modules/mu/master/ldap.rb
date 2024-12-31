@@ -101,7 +101,6 @@ module MU
         end
         if !username and !password
           bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: "cfg_directory_adm")#$MU_CFG["ldap"]["bind_creds"]["item"])
-          pp bind_creds
           username = bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]]
           password = bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]]
         end
@@ -236,7 +235,7 @@ module MU
           MU.log "Custom directory service configured, not initializing bundled schema", MU::NOTICE
           return
         end
-        root_creds = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: "root_dn_user")
+        root_creds = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: "cfg_directory_adm")
         @ldap_conn = Net::LDAP.new(
           :host => "127.0.0.1",
           :encryption => {
@@ -253,7 +252,7 @@ module MU
         )
 
         # Manufacture our OU tree and groups
-        [$MU_CFG["ldap"]["base_dn"],
+        [ $MU_CFG["ldap"]["base_dn"],
           "OU=Mu-System,#{$MU_CFG["ldap"]["base_dn"]}",
           $MU_CFG["ldap"]["user_ou"],
           $MU_CFG["ldap"]["group_ou"],
@@ -398,14 +397,14 @@ module MU
 
         @can_write = true
         if !conn.add(:dn => dn, :attributes => attr)
-          MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE, details: attr
+          MU.log "Couldn't create write-test user #{dn}, wll operate in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE, details: attr
           return false
         end
 
         # Make sure we can write various fields that we might need to touch
         [:displayName, :mail, :givenName, :sn].each { |field|
           if !conn.replace_attribute(dn, field, "foo@bar.com")
-            MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
+            MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, will operate in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
             @can_write = false
             
           end

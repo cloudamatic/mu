@@ -80,6 +80,9 @@ end
 remote_file "#{$MU_CFG['installdir']}/lib/cookbooks/mu-tools/files/default/Mu_CA.pem" do
   source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
 end
+execute "chcon -t httpd_config_t #{$MU_CFG['datadir']}/ssl/Mu_CA.pem" do
+  not_if "ls -aZ #{$MU_CFG['datadir']}/ssl/Mu_CA.pem | grep 'object_r:httpd_config_t'"
+end
 
 service_certs.each { |cert|
   bash "generate service cert for #{cert}" do
@@ -101,6 +104,9 @@ service_certs.each { |cert|
   %w{key crt p12}.each do |type|
     file "#{$MU_CFG['datadir']}/ssl/#{cert}.#{type}" do
       mode 0400
+    end
+    execute "chcon -t httpd_config_t #{$MU_CFG['datadir']}/ssl/#{cert}.#{type}" do
+      not_if "ls -aZ #{$MU_CFG['datadir']}/ssl/#{cert}.#{type} | grep 'object_r:httpd_config_t'"
     end
   end
 

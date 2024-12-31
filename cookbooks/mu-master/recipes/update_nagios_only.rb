@@ -202,6 +202,10 @@ else
       not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep 'object_r:nagios_'"
     end
   end
+  execute "chcon -t nagios_etc_t /etc/nagios/nrpe.d/check_disk.cfg" do
+    not_if "ls -aZ /etc/nagios/nrpe.d/check_disk.cfg | grep 'object_r:nagios_etc_t'"
+    only_if { File.exist?("/etc/nagios/nrpe.d/check_disk.cfg") }
+  end
 
   # execute "chgrp apache /var/log/nagios"
   ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|

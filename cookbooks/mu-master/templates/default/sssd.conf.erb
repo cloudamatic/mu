@@ -1,34 +1,38 @@
 [domain/platform-mu]
+enabled = true
 autofs_provider = ldap
 cache_credentials = False
 enumerate = True
 ldap_search_base = <%= @base_dn %>
-ldap_user_search_base = <%= @base_dn %>
-ldap_group_search_base = <%= @base_dn %>
+ldap_user_search_base = OU=Users,<%= @base_dn %>
+ldap_group_search_base = OU=Groups,<%= @base_dn %>
 id_provider = ldap
 auth_provider = ldap
 access_provider = permit
 chpass_provider = ldap
 sudo_provider = ldap
+ldap_schema = rfc2307
 ldap_uri = <%= @dcs.map { |dc| "ldaps://"+dc+"/" }.join(",") %>
 ldap_tls_reqcert = allow
 ldap_id_use_start_tls = True
-ldap_tls_cacertdir = /etc/openldap/cacerts
+ldap_tls_cacertdir = /opt/mu/var/ssl/Mu_CA.pem
 ldap_user_object_class = inetorgperson
 ldap_user_uid_number = employeeNumber
 ldap_user_gid_number = departmentNumber
 ldap_group_objectclass = posixGroup
 ldap_group_member = memberUid
 ldap_group_gid_number = gidNumber
+ldap_min_id = 10000
 
 [sssd]
 services = nss, pam
 config_file_version = 2
 domains = platform-mu
+domain_resolution_order = platform-mu,files
 
 [nss]
-nss_filter_groups = root
-nss_filter_users = root, apache, postfix, bin, daemon, sshd, ftp, clam, centos, mysql, clam, saslauth, dbus, nagios, rpc, nscd
+filter_groups = root
+filter_users = root, apache, postfix, bin, daemon, sshd, ftp, clam, centos, mysql, clam, saslauth, dbus, nagios, rpc, nscd
 override_homedir = /home/%u
 default_shell = /bin/bash
 

@@ -22,6 +22,7 @@ include_recipe "mu-master::389ds"
 package "sssd"
 package "sssd-ldap"
 package "sssd-client"
+
 package "nss-pam-ldapd" do
   action :remove
 end
@@ -29,8 +30,10 @@ package "pam_ldap" do
   action :remove
 end
 package "dbus"
-service "messagebus" do
-  action [:enable, :start]
+if !(node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023)
+  service "messagebus" do
+    action [:enable, :start]
+  end
 end
 package "nscd"
 service "nscd" do
@@ -59,32 +62,43 @@ service "oddjobd" do
   action [:enable, :start]
 end
 package "authconfig"
-execute "LC_ALL=C /usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
-  notifies :restart, "service[oddjobd]", :immediately
-  notifies :reload, "service[sshd]", :delayed
-  not_if "grep pam_sss.so /etc/pam.d/password-auth"
-end
-directory "/var/log/sssd" do
-  mode 0750
-  recursive true
-end
-service "sssd" do
-  action :nothing
-  notifies :restart, "service[sshd]", :immediately
-end
-template "/etc/sssd/sssd.conf" do
-  source "sssd.conf.erb"
-  mode 0600
-  owner "root"
-  group "root"
-  notifies :restart, "service[sssd]", :immediately
-  variables(
-    :base_dn => $MU_CFG['ldap']['base_dn'],
-    :user_ou => $MU_CFG['ldap']['user_ou'],
-    :dcs => $MU_CFG['ldap']['dcs']
-  )
-end
-service "sssd" do
-  action [:enable, :start]
-  notifies :restart, "service[sshd]", :immediately
+
+# XXX SSSD seems to not work on Amazon 2023 at all right now. It fails silently
+# on startup over some kind of systemd/permission issue (it can't write its
+# PID file, no it's not SELinux's fault either).
+#
+# If you run it interactively (sssd -i), it can't seem to enumerate users from
+# the LDAP server, though they are definitely present. 
+#
+# Working around this problem elsewhere.
+if !(node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023)
+  execute "LC_ALL=C /usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
+    notifies :restart, "service[oddjobd]", :immediately
+    notifies :reload, "service[sshd]", :delayed
+    not_if "grep pam_sss.so /etc/pam.d/password-auth"
+  end
+  directory "/var/log/sssd" do
+    mode 0750
+    recursive true
+  end
+  service "sssd" do
+    action :nothing
+    notifies :restart, "service[sshd]", :immediately
+  end
+  template "/etc/sssd/sssd.conf" do
+    source "sssd.conf.erb"
+    mode 0600
+    owner "root"
+    group "root"
+    notifies :restart, "service[sssd]", :immediately
+    variables(
+      :base_dn => $MU_CFG['ldap']['base_dn'],
+      :user_ou => $MU_CFG['ldap']['user_ou'],
+      :dcs => $MU_CFG['ldap']['dcs']
+    )
+  end
+  service "sssd" do
+    action [:enable, :start]
+    notifies :restart, "service[sshd]", :immediately
+  end
 end
