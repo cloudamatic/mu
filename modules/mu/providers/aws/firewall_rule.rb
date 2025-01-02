@@ -757,6 +757,8 @@ MU.log ".update_security_group_rule_descriptions_ingress", MU::NOTICE, details: 
         end
 
         def rules_match(rule_a, rule_b)
+          a_ranges = rule_a[:ip_ranges].to_a.map { |r| MU.structToHash(r) }.sort
+          b_ranges = rule_b[:ip_ranges].to_a.map { |r| MU.structToHash(r) }.sort
           (
            rule_a[:from_port] == rule_b[:from_port] and
            rule_a[:to_port] == rule_b[:to_port] and
@@ -768,7 +770,7 @@ MU.log ".update_security_group_rule_descriptions_ingress", MU::NOTICE, details: 
             ) or
             (
              !rule_a[:ip_ranges].nil? and !rule_b[:ip_ranges].nil? and
-             rule_a[:ip_ranges].sort == rule_b[:ip_ranges].sort
+             a_ranges == b_ranges
             )
            ) and
            (

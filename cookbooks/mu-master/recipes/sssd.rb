@@ -19,50 +19,6 @@
 include_recipe 'mu-master::firewall-holes'
 include_recipe "mu-master::389ds"
 
-package "sssd"
-package "sssd-ldap"
-package "sssd-client"
-
-package "nss-pam-ldapd" do
-  action :remove
-end
-package "pam_ldap" do
-  action :remove
-end
-package "dbus"
-if !(node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023)
-  service "messagebus" do
-    action [:enable, :start]
-  end
-end
-package "nscd"
-service "nscd" do
-  action [:disable, :stop]
-end
-package "oddjob-mkhomedir"
-execute "restorecon -r /usr/sbin"
-service "sshd" do
-  action :nothing
-end
-
-# SELinux Policy for oddjobd and its interaction with syslogd
-cookbook_file "syslogd_oddjobd.pp" do
-  path "#{Chef::Config[:file_cache_path]}/syslogd_oddjobd.pp"
-end
-
-execute "Add oddjobd and syslogd interaction to SELinux allow list" do
-  command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
-  cwd Chef::Config[:file_cache_path]
-  not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
-  notifies :restart, "service[oddjobd]", :delayed
-end
-
-service "oddjobd" do
-  start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
-  action [:enable, :start]
-end
-package "authconfig"
-
 # XXX SSSD seems to not work on Amazon 2023 at all right now. It fails silently
 # on startup over some kind of systemd/permission issue (it can't write its
 # PID file, no it's not SELinux's fault either).
@@ -71,12 +27,65 @@ package "authconfig"
 # the LDAP server, though they are definitely present. 
 #
 # Working around this problem elsewhere.
-if !(node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023)
+package "sssd"
+package "sssd-tools"
+package "sssd-client"
+service "sssd" do
+  action :nothing
+  notifies :restart, "service[sshd]", :immediately
+end
+if node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023
+  package "authselect"
+  execute "authselect select minimal --force" do
+    not if "authselect current | grep '^Profile ID: minimal$'"
+    notifies :restart, "service[sshd]", :immediately
+  end
+else
+  package "sssd-ldap"
+  package "authconfig"
+  
+  package "nss-pam-ldapd" do
+    action :remove
+  end
+  package "pam_ldap" do
+    action :remove
+  end
+  package "dbus"
+  service "messagebus" do
+    action [:enable, :start]
+  end
+  package "nscd"
+  service "nscd" do
+    action [:disable, :stop]
+  end
+  package "oddjob-mkhomedir"
+  execute "restorecon -r /usr/sbin"
+  service "sshd" do
+    action :nothing
+  end
+  
   execute "LC_ALL=C /usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
     notifies :restart, "service[oddjobd]", :immediately
     notifies :reload, "service[sshd]", :delayed
     not_if "grep pam_sss.so /etc/pam.d/password-auth"
   end
+  # SELinux Policy for oddjobd and its interaction with syslogd
+  cookbook_file "syslogd_oddjobd.pp" do
+    path "#{Chef::Config[:file_cache_path]}/syslogd_oddjobd.pp"
+  end
+  
+  execute "Add oddjobd and syslogd interaction to SELinux allow list" do
+    command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
+    cwd Chef::Config[:file_cache_path]
+    not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
+    notifies :restart, "service[oddjobd]", :delayed
+  end
+  
+  service "oddjobd" do
+    start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
+    action [:enable, :start]
+  end
+
   directory "/var/log/sssd" do
     mode 0750
     recursive true

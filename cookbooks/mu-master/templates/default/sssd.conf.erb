@@ -1,16 +1,17 @@
 [domain/platform-mu]
 enabled = true
-autofs_provider = ldap
 cache_credentials = False
 enumerate = True
+access_provider = permit
+<% if @base_dn %>
+autofs_provider = ldap
+id_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+sudo_provider = ldap
 ldap_search_base = <%= @base_dn %>
 ldap_user_search_base = OU=Users,<%= @base_dn %>
 ldap_group_search_base = OU=Groups,<%= @base_dn %>
-id_provider = ldap
-auth_provider = ldap
-access_provider = permit
-chpass_provider = ldap
-sudo_provider = ldap
 ldap_schema = rfc2307
 ldap_uri = <%= @dcs.map { |dc| "ldaps://"+dc+"/" }.join(",") %>
 ldap_tls_reqcert = allow
@@ -23,6 +24,11 @@ ldap_group_objectclass = posixGroup
 ldap_group_member = memberUid
 ldap_group_gid_number = gidNumber
 ldap_min_id = 10000
+<% else %>
+id_provider = files
+proxy_lib_name = files
+proxy_pam_target = sssd-shadowutils
+<% end %>
 
 [sssd]
 services = nss, pam

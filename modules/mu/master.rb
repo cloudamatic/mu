@@ -72,6 +72,46 @@ module MU
       end
     end
 
+    # Ensure that the existing list of LDAP groups has counterparts in
+    # /etc/group, and that all LDAP members also exist there.
+    # @return [Hash<String>]: A mapping of group names to gids
+    def self.syncGroups
+      groups = MU::Master::LDAP.findGroups(whole_desc: true)
+      ldapusers = MU::Master::LDAP.listUsers
+      groups.each { |g|
+        group_name = g.dn.split(/,/)[0].sub(/^cn=/i, '')
+        attempts = 0
+        group = begin
+          Etc.getgrnam(group_name)
+        rescue ArgumentError => e
+          MU.log "Creating unix group #{group_name} with gid #{g.gidnumber.first}", MU::NOTICE
+          attempts += 1
+          puts %x{/usr/sbin/groupadd --gid #{g.gidnumber.first} #{group_name}}
+          if attempts < 3
+            retry
+          else
+            raise MuError, "Failed to create group #{group_name}"
+          end
+        end
+        if group.gid != g.gidnumber.first.to_i
+          raise MuError, "GID #{group.gid.to_s} for group #{group_name} doesn't agree with LDAP, which says #{g.gidnumber.first}"
+        end
+
+        g.memberuid.each { |user|
+          begin
+            Etc.getpwnam(user)
+          rescue ArgumentError
+            next
+          end
+
+          if ldapusers[user] and !group.mem.include?(user)
+            MU.log "Adding #{user} to group #{group_name}", MU::NOTICE
+            puts %x{/usr/sbin/groupmod --append #{group_name} --users #{user}}
+          end
+        }
+      }
+    end
+
     # Create and/or update a user as appropriate (Chef, LDAP, et al).
     # @param username [String]: The canonical username to modify.
     # @param chef_username [String]: The Chef username, if different
@@ -99,12 +139,39 @@ module MU
         deleteUser(username) if create
         return false
       end
+      ldapusers = MU::Master::LDAP.listUsers
+      if !ldapusers[username]
+        MU.log "#{username} wasn't in LDAP after I added it, I don't know what to do", MU::ERR
+        deleteUser(username) if create
+        return false
+      end
+
+      # XXX the following insecure jank is a workaround for the fact that SSSD
+      # is flat broken on Amazon Linux 2023. We're managing unix passwd and
+      # group entries like cavemen.
+      ldap_desc = ldapusers[username]
+      begin
+        Etc.getpwnam(username)
+      rescue
+        syncGroups
+        MU.log "Creating unix user #{username}", MU::NOTICE, ldap_desc
+        # XXX plain-text password visible in ps! horrible!
+        puts %x{/usr/sbin/adduser "#{username}" --uid #{ldap_desc['uid']} --gid #{ldap_desc['gid']} --no-user-group --comment '#{ldap_desc['realname']},#{ldap_desc['email']},,,' --password '#{password}'}
+      end
+      syncGroups
       %x{sh -x /etc/init.d/oddjobd start 2>&1 > /dev/null} # oddjobd dies, like a lot
       begin
         Etc.getpwnam(username)
+        if password # setting a new password for an existing user
+          MU.log "Updating unix password for #{username}", MU::NOTICE
+          # XXX plain-text password visible in ps! horrible!
+          %x{echo '#{username}:#{password}' | /usr/sbin/chpasswd}
+        end
       rescue ArgumentError
         return false
       end
+      
+
       chef_username ||= username.dup
       %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
@@ -157,6 +224,8 @@ module MU
       end
       MU::Master::Chef.deleteUser(user)
       MU::Master::LDAP.deleteUser(user)
+      puts %x{/usr/sbin/userdel "#{user}"}
+      puts %x{/usr/sbin/groupdel "#{user}.mu-user"}
       FileUtils.rm_rf(deletia)
     end
 

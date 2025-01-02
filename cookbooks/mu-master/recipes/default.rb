@@ -473,6 +473,9 @@ if !node['update_nagios_only']
 
   template "Mu Master /etc/ssh/sshd_config" do
     path "/etc/ssh/sshd_config"
+    variables(
+      :allowgroups => ["mu-users"]
+    )
     source "sshd_config.erb"
     mode 0600
     owner "root"

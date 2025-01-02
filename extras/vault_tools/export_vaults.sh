@@ -1,3 +1,13 @@
 #!/bin/bash
 # Exports existing vaults to a vaults directory for use by test_vaults and recreate_vaults
-mkdir -p ~/vaults ; for i in `knife data bag list | grep -vE -- '-[0-9]{10}-'`;do echo $i; mkdir -p vaults/$i ; for j in `knife data bag show $i | grep -v '_keys$'`;do echo "   $j"; knife vault show $i $j -F json > vaults/$i/$j.json;done;done ; find vaults -empty -delete
+mkdir -p ~/vaults
+cd
+for i in `knife vault list | egrep -v '^INFO:'`;do
+  echo "VAULTNAME: $i"
+  mkdir -p vaults/$i
+  for j in `knife data bag show $i | egrep -v '^INFO:|_keys$'`;do
+    echo "   ITEM: $j"
+    knife vault show "$i" "$j" -F json | grep -v '^INFO:' > ~/vaults/$i/$j.json
+  done
+done
+find ~/vaults -empty -delete

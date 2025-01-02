@@ -210,6 +210,7 @@ module MU
           :gidNumber => gid,
           :objectclass => ["top", "posixGroup"]
         }
+
         if !@ldap_conn.add(
               :dn => dn,
               :attributes => attr
@@ -217,7 +218,7 @@ module MU
           MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR, details: attr
           return false
         elsif @ldap_conn.get_operation_result.code != 68
-          MU.log "Created group #{dn} with gid #{gid}", MU::NOTICE
+          MU.log "Created group #{dn} with gid #{gid} (#{@ldap_conn.get_operation_result.message})", MU::NOTICE
         end
         return gid
       end
@@ -431,11 +432,12 @@ module MU
       # @param search [Array<String>]: Strings to search for.
       # @param exact [Boolean]: Return only exact matches for whole fields.
       # @param searchbase [String]: The DN under which to search.
+      # @param whole_desc [Boolean]: Return whole descriptors instead of just the DNs
       # @return [Array<String>]
-      def self.findGroups(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'])
-        if search.nil? or search.size == 0
-          raise MuLDAPError, "Need something to search for in MU::Master::LDAP.findGroups"
-        end
+      def self.findGroups(search = [], exact: false, searchbase: "OU=Groups,"+$MU_CFG['ldap']['base_dn'], whole_desc: false)
+#        if search.nil? or search.size == 0
+#          raise MuLDAPError, "Need something to search for in MU::Master::LDAP.findGroups"
+#        end
         conn = getLDAPConnection
         filter = nil
         search.each { |term|
@@ -450,14 +452,19 @@ module MU
             filter = filter | curfilter
           end
         }
-        filter = Net::LDAP::Filter.ne("objectclass", "computer") & (filter)
+        filter = if filter
+          Net::LDAP::Filter.ne("objectclass", "computer") & (filter)
+        else
+          Net::LDAP::Filter.ne("objectclass", "computer")
+        end
         groups = []
         conn.search(
           :filter => filter,
           :base => searchbase,
-          :attributes => ["objectclass"]
+          :attributes => ["objectclass"] + (whole_desc ? ["description", @gidnum_attr, @member_attr] : [])
         ) do |group|
-          groups << group.dn
+          next if group.dn == searchbase
+          groups << (whole_desc ? group : group.dn)
         end
         groups
       end
@@ -671,7 +678,7 @@ module MU
               username_filter = Net::LDAP::Filter.eq("cn", cn)
             end
             user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
-            fetchattrs = ["cn", @uid_attr, "displayName", "mail"]
+            fetchattrs = ["cn", @uid_attr, "displayName", "mail", "departmentNumber"]
             fetchattrs << "employeeNumber" if $MU_CFG["ldap"]["type"] == "389 Directory Services"
             conn.search(
               :filter => username_filter & user_filter,
@@ -694,6 +701,9 @@ module MU
               end rescue NoMethodError
               begin
                 users[acct[@uid_attr].first]['uid'] = acct.employeenumber.first
+              end rescue NoMethodError
+              begin
+                users[acct[@uid_attr].first]['gid'] = acct.departmentNumber.first
               end rescue NoMethodError
             end
           }
@@ -898,22 +908,25 @@ module MU
               manageGroup(group, add_users: [user])
             }
 
-            wait = 10
-            begin
-              %x{/usr/bin/getent passwd ; /usr/bin/getent group} # winbind is slow sometimes
-              Etc.getpwnam(user)
-            rescue ArgumentError
-              if wait >= 30
-                MU.log "User #{user} has been created in LDAP, but local system can't see it. Are PAM/LDAP configured correctly?", MU::ERR
-                return false
-              end
-              MU.log "User #{user} has been created in LDAP, but not yet visible to local system, waiting #{wait}s and checking again.", MU::WARN
-              sleep wait
-              wait = wait + 5
-              retry
-            end if user != "mu"
+# XXX SSSD is completely broken on Amazon 2023 for now. None of the below works.
+# We're currently relying on MU::Master.manageUser to set up a unix-side
+# user, old-school /etc/passwd style, in parallel to these LDAP entries.
+#            wait = 10
+#            begin
+#              %x{/usr/bin/getent passwd ; /usr/bin/getent group} # winbind is slow sometimes
+#              Etc.getpwnam(user)
+#            rescue ArgumentError
+#              if wait >= 30
+#                MU.log "User #{user} has been created in LDAP, but local system can't see it. Are PAM/LDAP configured correctly?", MU::ERR
+#                return false
+#              end
+#              MU.log "User #{user} has been created in LDAP, but not yet visible to local system, waiting #{wait}s and checking again.", MU::WARN
+#              sleep wait
+#              wait = wait + 5
+#              retry
+#            end if user != "mu"
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
-            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
+#            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
@@ -985,9 +998,13 @@ module MU
 
         cur_users = listUsers
         if cur_users.has_key?(user)
+          stubdir = File.join($MU_CFG['datadir'], "users", user)
+          if !Dir.exist?(stubdir)
+            Dir.mkdir(stubdir)
+          end
           ["realname", "email", "monitoring_email"].each { |field|
             next if !cur_users[user].has_key?(field)
-            File.open($MU_CFG['datadir']+"/users/#{user}/#{field}", File::CREAT|File::RDWR, 0640) { |f|
+            File.open("#{stubdir}/#{field}", File::CREAT|File::RDWR, 0640) { |f|
               f.puts cur_users[user][field]
             }
           }
@@ -995,7 +1012,7 @@ module MU
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
 
-        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
+#        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
         ok
       end
 

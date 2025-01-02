@@ -165,4 +165,8 @@ UseDNS no
 
 # CAP Mod, restrict ciphers
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
-AllowUsers ec2-user root
+<% if @allowgroups %>
+  AllowGroups <%= @allowgroups.join(" ") %>
+<% else %>
+  AllowUsers ec2-user root
+<% end %>

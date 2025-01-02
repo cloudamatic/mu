@@ -892,19 +892,19 @@ module MU
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
     rescue NameError
-    rescue TypeError
-      return struct
+    rescue TypeError => e
+      # XXX this just means we haven't loaded the google APIs, detect that state more cleanly and omit this entire block
+      return struct if e.message != "nil is not a class/module"
     end
 
     aws_struct = false
     begin
-      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
+      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response) or struct.is_a?(Aws::EC2::Types::IpRange)
     rescue NameError
     rescue TypeError
       return struct
     end
 
-puts aws_struct
     azure_struct = false
     begin
       azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)
