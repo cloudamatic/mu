@@ -37,7 +37,7 @@ end
 if node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2023
   package "authselect"
   execute "authselect select minimal --force" do
-    not if "authselect current | grep '^Profile ID: minimal$'"
+    not_if "authselect current | grep '^Profile ID: minimal$'"
     notifies :restart, "service[sshd]", :immediately
   end
 else
