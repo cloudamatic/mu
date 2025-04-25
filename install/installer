@@ -4,7 +4,7 @@
 yum -y install git dmidecode
 BOLD=`tput bold`
 NORM=`tput sgr0`
-CHEF_CLIENT_VERSION="18.5.0"
+CHEF_CLIENT_VERSION="18.7.6"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="master"
   mydir="`dirname $0`"

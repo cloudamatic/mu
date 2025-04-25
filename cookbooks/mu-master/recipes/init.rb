@@ -31,7 +31,7 @@ chef_gem "cloud-mu" do
 end
 
 CHEF_SERVER_VERSION="14.11.31-1"
-CHEF_CLIENT_VERSION="18.5.0"
+CHEF_CLIENT_VERSION="18.7.6"
 
 # The versions of these must not bring in a newer version of aws-sdk-core
 # than whatever Chef prefers (aws-sdk-core 3.171.0 as of Chef 18.5.0,
