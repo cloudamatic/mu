@@ -258,13 +258,13 @@ when 'amazon'
 
   when '2'
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services'])
-    removepackages = ['nagios', 'firewalld']
+    removepackages = ['nagios']
     elversion = '7'
 
   when '2023'
     basepackages.concat(['libX11', 'mariadb105-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services', 'libxcrypt-compat', 'ruby', 'nspr-devel', 'nss-devel >= 3.34', 'openldap-clients', 'openldap-devel', 'lmdb-devel', 'cyrus-sasl-devel', 'icu', 'libicu-devel', 'pcre2-devel', 'cracklib-devel', 'json-c-devel', 'libatomic', 'clang', 'compiler-rt', 'lld', 'gcc', 'gcc-c++', 'libasan', 'libtsan', 'libubsan', 'libdb-devel', 'net-snmp-devel', 'bzip2-devel', 'openssl-devel', 'pam-devel', 'systemd-units', 'systemd-devel', 'pkgconfig', 'krb5-devel', 'autoconf', 'automake', 'libtool', 'doxygen', 'libcmocka-devel', 'python3', 'python3-devel', 'python3-setuptools', 'python3-ldap', 'python3-pyasn1', 'python3-pyasn1-modules', 'python3-dateutil', 'python3-argcomplete', 'python3-policycoreutils', 'python3-libselinux', 'python3-cryptography', 'rsync', 'python3-pip'])
     basepackages.delete('curl')
-    removepackages = ['nagios', 'firewalld']
+    removepackages = ['nagios']
     elversion = '7'
 
   else

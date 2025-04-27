@@ -56,9 +56,9 @@ if ::File.exist?("/etc/sudoers.d/waagent")
   }
 end
 
+include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
-include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'

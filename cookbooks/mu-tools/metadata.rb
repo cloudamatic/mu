@@ -27,5 +27,4 @@ depends "yum-epel", '~> 5.0.8'
 depends "mu-firewall"
 depends "mu-activedirectory"
 depends "chocolatey"
-depends "firewall"
 depends 'selinux', '~> 3.0.0'

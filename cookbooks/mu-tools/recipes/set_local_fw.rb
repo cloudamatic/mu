@@ -19,7 +19,13 @@
 if !node['application_attributes']['skip_recipes'].include?('set_local_fw')
   master_ips = get_mu_master_ips
   case node['platform_family']
-  when 'rhel'#, 'amazon'
+
+  when 'amazon'
+    if node['platform_version'].to_i == 2023
+      include_recipe 'mu-firewall'
+    end
+    
+  when 'rhel'
     include_recipe 'mu-firewall'
 
     if elversion >= 7 and node['platform_family'] != "amazon" # Can use firewalld, but not if iptables is already rigged
