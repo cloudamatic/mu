@@ -262,30 +262,46 @@ module MU
                  { name: "resource-id", values: [@cloud_id] }
                ]
             )
-            # XXX a smarter guard would filter with more specificity
-            if !ext or ext.flow_logs.empty?
-              loggroup = if @config['log_group_name']
-                @config['log_group_name']
+            logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
+            log_cfg = {
+              resource_ids: [@cloud_id],
+              resource_type: "VPC",
+              traffic_type: "ALL",
+              tag_specifications: [
+                {
+                  resource_type: "vpc-flow-log",
+                  tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+                }
+              ]
+            }
+              
+            if @config['log_bucket_arn']
+              log_cfg[:log_destination] = @config['log_bucket_arn']
+              log_cfg[:log_destination_type] = "s3"
+            else
+              log_cfg[:log_destination_type] = "cloud-watch-logs"
+              log_cfg[:deliver_logs_permission_arn] = logrole.cloudobj.arn,
+              if @config['log_group_name']
+                log_cfg[:log_group_name] = @config['log_group_name']
               else
-                @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs").mu_name
+                log_cfg[:log_group_name] = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs").mu_name
               end
-              logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
+            end
+
+            have_match = false
+            if ext and ext.flow_logs
+              ext.flow_logs.each { |fl|
+                next if fl.log_destination_type != log_cfg[:log_destination_type]
+                next if fl.log_destination_type == "s3" and fl.log_destination != log_cfg[:log_destination]
+                next if fl.log_destination_type == "cloud-watch-logs" and fl.log_group_name != log_cfg[:log_group_name]
+                have_match = true
+              }
+            end
 
 
-              MU.log "Enabling traffic logging on VPC #{@mu_name} to log group #{loggroup}"
-              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_flow_logs(
-                resource_ids: [@cloud_id],
-                resource_type: "VPC",
-                traffic_type: "ALL",
-                log_group_name: loggroup,
-                deliver_logs_permission_arn: logrole.cloudobj.arn,
-                tag_specifications: [
-                  {
-                    resource_type: "vpc-flow-log",
-                    tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-                  }
-                ]
-              )
+            if !have_match
+              MU.log "Enabling traffic logging on VPC #{@mu_name} to #{log_cfg[:log_destination] || log_cfg[:log_group_name]}"
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_flow_logs(log_cfg)
             end
           end
 
@@ -934,6 +950,10 @@ module MU
             "log_group_name" => {
               "type" => "string",
               "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+            },
+            "log_bucket_arn" => {
+              "type" => "string",
+              "description" => "An S3 bucket into which to deposit flow logs"
             },
             "enable_traffic_logging" => {
               "type" => "boolean",
