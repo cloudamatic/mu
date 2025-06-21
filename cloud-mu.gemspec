@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.6.14'
-  s.date        = '2025-04-27'
+  s.version     = '3.6.15'
+  s.date        = '2025-06-21'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 3'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
