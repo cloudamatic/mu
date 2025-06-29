@@ -499,7 +499,7 @@ dependencies
         end
 
         # Create a database parameter group.
-        def manageDbParameterGroup(cluster = false, create: true)
+        def manageDbParameterGroup(cluster = false, create: true, force_new: false)
           return if !@config["parameter_group_name"]
           name_param = cluster ? :db_cluster_parameter_group_name : :db_parameter_group_name
           fieldname = cluster ? "cluster_parameter_group_parameters" : "db_parameter_group_parameters"
@@ -516,7 +516,15 @@ dependencies
             begin
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
             rescue Aws::RDS::Errors::DBParameterGroupAlreadyExists => e
-              MU.log e.message, MU::WARN
+            # XXX get the name of the one currently associated with our instance, and alternate
+              if force_new and @config["parameter_group_name"] !~ /-NEW$/
+                ts = Time.new.strftime("%Y%m%d%H%M%S")
+                MU.log "Parameter group name occupied, appending -#{ts}", MU::NOTICE
+                params[name_param] = @config["parameter_group_name"] = @config["parameter_group_name"]+"-"+ts
+                retry
+              else
+                MU.log e.message, MU::WARN
+              end
             end
           end
 
@@ -532,7 +540,7 @@ dependencies
               next if old_values[item["name"]] == item['value']
               params << {parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
             }
-            return if params.empty?
+            return @config["parameter_group_name"] if params.empty?
 
             MU.log "Modifying parameter group #{@config["parameter_group_name"]}", MU::NOTICE, details: params.map { |p| { p[:parameter_name] => p[:parameter_value] } }
 
@@ -550,25 +558,29 @@ dependencies
               end
             }
           end
+          @config["parameter_group_name"]
         end
 
         # If we've declared special option group options, ensure that we have
         # an option group of the same name as our database instance with the
         # correct settings.
+        # @param force_new [Boolean]: Create a new option group whether or not one already exists. Append -NEW if the usual name isn't free.
         # @return [String]: The name of the option group our database should use
-        def manageOptionGroup
+        def manageOptionGroup(force_new: false)
+          ts = Time.new.strftime("%Y%m%d%H%M%S")
+          og_name = force_new ? @mu_name+"-"+ts : @mu_name
           if @config['option_group_options'] and !@config['option_group_options'].empty?
             og = begin
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_option_groups(
-                option_group_name: @mu_name
+                option_group_name: og_name
               ).option_groups_list.first
             rescue Aws::RDS::Errors::OptionGroupNotFoundFault
-              MU.log "Creating Option Group #{@mu_name} for #{@config['engine']} #{@config['major_version']} database #{@mu_name}"
+              MU.log "Creating Option Group #{og_name} for #{@config['engine']} #{@config['major_version']} database #{@mu_name}"
 
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).create_option_group(
                 engine_name: @config['engine'],
                 major_engine_version: @config['major_version'],
-                option_group_name: @mu_name,
+                option_group_name: og_name,
                 option_group_description: @deploy_id
               ).option_group
             end
@@ -581,15 +593,15 @@ dependencies
             }
 
             if !need.empty?
-              MU.log "Modifying Option Group #{@mu_name}", MU::NOTICE, need
+              MU.log "Modifying Option Group #{og_name}", MU::NOTICE, need
               MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_option_group(
-                option_group_name: @mu_name,
+                option_group_name: og_name,
                 apply_immediately: true,
                 options_to_include: need
               )
             end
 
-            @mu_name
+            og_name
           # Otherwise if we've declared a non-default option group, ensure that
           # we're using it.
           elsif @config['option_group']
@@ -712,12 +724,22 @@ dependencies
           end
 
           if mods.size > 1
-            MU.log "Modifying RDS instance #{@cloud_id}", MU::NOTICE, details: mods
             mods[:apply_immediately] = true
             mods[:allow_major_version_upgrade] = true
+            mods[:db_parameter_group_name] = manageDbParameterGroup(force_new: true)
             wait_until_available
             MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue], wait: 60, max: 15) {
-              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("modify_db_#{noun}".to_sym, mods)
+              begin
+                MU.log "Modifying RDS instance #{@cloud_id}", MU::NOTICE, details: mods
+                MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("modify_db_#{noun}".to_sym, mods)
+              rescue Aws::RDS::Errors::InvalidParameterCombination => e
+                if e.message =~ /option group/i
+                  mods[:option_group_name] = manageOptionGroup(force_new: true)
+                  retry
+                else
+                  raise e
+                end
+              end
             }
             wait_until_available
           end
